@@ -95,8 +95,10 @@ const HardwareView = ({
     return (
       <BaseView isUnlocked={isUnlocked}>
         <BaseViewHeading isDraggable={isDraggable}>Hardware</BaseViewHeading>
-        <BaseViewBody className="flex-center text-center text-white">
-          Run the Hardware op mode to get started
+        <BaseViewBody className="flex-center">
+          <h3 className="text-md text-center">
+            Run the Hardware op mode to get started
+          </h3>
         </BaseViewBody>
       </BaseView>
     );

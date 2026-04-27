@@ -187,7 +187,15 @@ const ConfigView = ({
           <BaseViewIconButton
             title="Save Changes"
             onClick={() => {
-              const configDiff = validAndModified(configRoot);
+              const nonHardwareRoot: CustomVarState = {
+                __type: 'custom',
+                __value: Object.fromEntries(
+                  Object.entries(rootValue).filter(
+                    ([k]) => k !== HARDWARE_CATEGORY,
+                  ),
+                ),
+              };
+              const configDiff = validAndModified(nonHardwareRoot);
               if (configDiff != null) {
                 dispatch({
                   type: 'SAVE_CONFIG',
@@ -234,13 +242,10 @@ const ConfigView = ({
                     type: 'UPDATE_CONFIG',
                     configRoot: {
                       __type: 'custom',
-                      __value: sortedKeys.reduce(
-                        (acc, key2) => ({
-                          ...acc,
-                          [key2]: key === key2 ? newState : rootValue[key2],
-                        }),
-                        {},
-                      ),
+                      __value: {
+                        ...rootValue,
+                        [key]: newState,
+                      },
                     },
                   })
                 }

@@ -193,7 +193,7 @@ public class HardwareOpMode extends OpMode {
 
         motorVar.putVariable("Current Position", createVariableFromValue(VariableType.READONLY_STRING, String.valueOf(motor.getCurrentPosition())));
         motorVar.putVariable("Target Position", createVariableFromValue(motor.getTargetPosition()));
-        motorVar.putVariable("Run Mode", createVariableFromValue(DcMotorEx.RunMode.RUN_WITHOUT_ENCODER));
+        motorVar.putVariable("Run Mode", createVariableFromValue(motor.getMode()));
 
         double current = Math.round(motor.getCurrent(AMPS) * 100) / 100.0;
         motorVar.putVariable("Current", createVariableFromValue(current));
