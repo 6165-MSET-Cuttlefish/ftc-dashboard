@@ -11,9 +11,13 @@ import com.acmerobotics.dashboard.config.variable.CustomVariable;
 import com.acmerobotics.dashboard.config.variable.VariableType;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
+import com.qualcomm.robotcore.hardware.CRServo;
+import com.qualcomm.robotcore.hardware.ColorSensor;
 import com.qualcomm.robotcore.hardware.DcMotorEx;
 import com.qualcomm.robotcore.hardware.DcMotorSimple;
 import com.qualcomm.robotcore.hardware.HardwareDevice;
+import com.qualcomm.robotcore.hardware.NormalizedColorSensor;
+import com.qualcomm.robotcore.hardware.NormalizedRGBA;
 import com.qualcomm.robotcore.hardware.Servo;
 
 /**
@@ -111,6 +115,8 @@ public class HardwareOpMode extends OpMode {
     private void initHardware(CustomVariable hardwareRoot) {
         initializeMotorVariables(hardwareRoot);
         initializeServoVariables(hardwareRoot);
+        initializeCRServoVariables(hardwareRoot);
+        initializeColorSensorVariables(hardwareRoot);
     }
 
     /**
@@ -122,6 +128,7 @@ public class HardwareOpMode extends OpMode {
     private void setHardware(CustomVariable hardwareRoot) {
         updateMotorsFromConfig(hardwareRoot);
         updateServosFromConfig(hardwareRoot);
+        updateCRServoFromConfig(hardwareRoot);
     }
 
     /**
@@ -132,6 +139,7 @@ public class HardwareOpMode extends OpMode {
      */
     private void updateHardware(CustomVariable hardwareRoot) {
         updateMotorStateVariables(hardwareRoot);
+        updateColorSensorStateVariables(hardwareRoot);
     }
 
     /* -------------------- Motor Handling --------------------- */
@@ -146,6 +154,7 @@ public class HardwareOpMode extends OpMode {
         CustomVariable motors = new CustomVariable();
 
         for (DcMotorSimple motor : hardwareMap.getAll(DcMotorSimple.class)) {
+            if (motor instanceof CRServo) continue; // Handled later
             DcMotorEx motorEx = (DcMotorEx) motor;
             String deviceName = getDeviceName(motorEx);
             if (deviceName == null) continue;
@@ -190,6 +199,8 @@ public class HardwareOpMode extends OpMode {
         motorVar.putVariable("Current", createVariableFromValue(current));
         motorVar.putVariable(hubType + " Port", createVariableFromValue(VariableType.READONLY_STRING, String.valueOf(motor.getPortNumber())));
 
+        motorVar.putVariable("Velocity", createVariableFromValue(VariableType.READONLY_STRING, String.valueOf(motor.getVelocity())));
+
         return motorVar;
     }
 
@@ -204,6 +215,7 @@ public class HardwareOpMode extends OpMode {
         if (motorsVar == null) return;
 
         for (DcMotorSimple motor : hardwareMap.getAll(DcMotorSimple.class)) {
+            if (motor instanceof CRServo) continue; // Handled later
             DcMotorEx motorEx = (DcMotorEx) motor;
             String motorName = getDeviceName(motorEx);
             if (motorName == null) continue;
@@ -249,6 +261,7 @@ public class HardwareOpMode extends OpMode {
         if (motorsVar == null) return;
 
         for (DcMotorSimple motor : hardwareMap.getAll(DcMotorSimple.class)) {
+            if (motor instanceof CRServo) continue; // Handled later
             DcMotorEx motorEx = (DcMotorEx) motor;
             String deviceName = getDeviceName(motorEx);
             if (deviceName == null) continue;
@@ -257,6 +270,8 @@ public class HardwareOpMode extends OpMode {
             stateUpdate.putVariable("Current Position", createVariableFromValue(VariableType.READONLY_STRING, String.valueOf(motorEx.getCurrentPosition())));
             double current = Math.round(motorEx.getCurrent(AMPS) * 100) / 100.0;
             stateUpdate.putVariable("Current", createVariableFromValue(current));
+
+            stateUpdate.putVariable("Velocity", createVariableFromValue(VariableType.READONLY_STRING, String.valueOf(motorEx.getVelocity())));
 
             CustomVariable existingConfig = (CustomVariable) motorsVar.getVariable(deviceName);
             if (existingConfig != null) {
@@ -341,6 +356,170 @@ public class HardwareOpMode extends OpMode {
         }
     }
 
+    /* -------------------- CRServo Handling --------------------- */
+
+    /**
+     * Discovers all CRServos in the hardware map and creates dashboard variables for them.
+     * Each motor gets variables for power and port information.
+     *
+     * @param hardwareRoot the root variable container to add CRServo variables to
+     */
+    private void initializeCRServoVariables(CustomVariable hardwareRoot) {
+        CustomVariable CRServos = new CustomVariable();
+
+        for (CRServo crservo : hardwareMap.getAll(CRServo.class)) {
+            String deviceName = getDeviceName(crservo);
+            if (deviceName == null) continue;
+
+            CRServos.putVariable(deviceName, createCRServoVariable(crservo));
+        }
+
+        hardwareRoot.putVariable("Continuous Rotation Servos", CRServos);
+    }
+
+    /**
+     * Creates a complete dashboard variable structure for a single CR Servo.
+     * Includes power control and port information.
+     *
+     * @param servo the CRServo to create variables for
+     * @return a CustomVariable containing CRServo-related dashboard controls and info
+     */
+    private CustomVariable createCRServoVariable(CRServo servo) {
+        CustomVariable servoVar = new CustomVariable();
+        String hubType = extractHubType(servo.getController().getConnectionInfo());
+
+        servoVar.putVariable("Power", new BasicVariable<>(new ValueProvider<Double>() {
+            private double value = 0.0;
+
+            @Override
+            public Double get() {
+                return value;
+            }
+
+            @Override
+            public void set(Double newValue) {
+                value = newValue;
+                servo.setPower(newValue);
+            }
+        }));
+
+        servoVar.putVariable(hubType + " Port", createVariableFromValue(VariableType.READONLY_STRING, String.valueOf(servo.getPortNumber())));
+
+        return servoVar;
+    }
+
+    /**
+     * Applies configuration changes from the dashboard to all CRServos.
+     * Updates CRServo powers based on dashboard inputs.
+     *
+     * @param hardwareRoot the root variable container containing CRServo configurations
+     */
+    private void updateCRServoFromConfig(CustomVariable hardwareRoot) {
+        CustomVariable crServosVar = (CustomVariable) hardwareRoot.getVariable("Continuous Rotation Servos");
+        if (crServosVar == null) return;
+
+        for (CRServo servo : hardwareMap.getAll(CRServo.class)) {
+            String motorName = getDeviceName(servo);
+            if (motorName == null) continue;
+
+            CustomVariable servoVar = (CustomVariable) crServosVar.getVariable(motorName);
+            if (servoVar != null) {
+                applyCRServoConfiguration(servo, servoVar);
+            }
+        }
+    }
+
+    /**
+     * Applies configuration settings from the dashboard to a specific motor.
+     * Handles power changes.
+     *
+     * @param servo  the CRServo to configure
+     * @param config the configuration variables from the dashboard
+     */
+    private void applyCRServoConfiguration(CRServo servo, CustomVariable config) {
+        ConfigVariable<?> runModeVar = config.getVariable("Power");
+        if (runModeVar != null) {
+            servo.setPower((Double) runModeVar.getValue());
+        }
+    }
+
+    /* -------------------- Color Sensor Handling --------------------- */
+    /**
+     * Discovers all Color Sensors in the hardware map and creates dashboard variables for them.
+     * Each sensor gets variables for RGB and port information.
+     *
+     * @param hardwareRoot the root variable container to add color sensor variables to
+     */
+    private void initializeColorSensorVariables(CustomVariable hardwareRoot) {
+        CustomVariable colorSensors = new CustomVariable();
+
+        for (ColorSensor colorSensor : hardwareMap.getAll(ColorSensor.class)) {
+            String deviceName = getDeviceName(colorSensor);
+            if (deviceName == null) continue;
+
+            colorSensors.putVariable(deviceName, createColorSensorVariable(colorSensor));
+        }
+
+        hardwareRoot.putVariable("Color Sensors", colorSensors);
+    }
+
+    /**
+     * Creates a complete dashboard variable structure for a single color sensor.
+     * Includes RGB and port information.
+     *
+     * @param colorSensor the color sensor to create variables for
+     * @return a CustomVariable containing Color Sensor-related dashboard controls and info
+     */
+    private CustomVariable createColorSensorVariable(ColorSensor colorSensor) {
+        CustomVariable colorSensorVar = new CustomVariable();
+        String hubType = extractHubType(colorSensor.getConnectionInfo());
+
+        getColorSensorState(colorSensor, colorSensorVar);
+
+        colorSensorVar.putVariable(hubType + " Port", createVariableFromValue(VariableType.READONLY_STRING, extractI2CPort(colorSensor.getConnectionInfo())));
+
+        return colorSensorVar;
+    }
+
+    /**
+     * Updates the dashboard with current color sensor telemetry data.
+     * Refreshes color readings for all color sensors.
+     *
+     * @param hardwareRoot the root variable container to update with color sensor telemetry
+     */
+    private void updateColorSensorStateVariables(CustomVariable hardwareRoot) {
+        CustomVariable colorSensorsVar = (CustomVariable) hardwareRoot.getVariable("Color Sensors");
+        if (colorSensorsVar == null) return;
+
+        for (ColorSensor colorSensor : hardwareMap.getAll(ColorSensor.class)) {
+            String deviceName = getDeviceName(colorSensor);
+            if (deviceName == null) continue;
+
+            CustomVariable stateUpdate = new CustomVariable();
+            getColorSensorState(colorSensor, stateUpdate);
+
+            CustomVariable existingConfig = (CustomVariable) colorSensorsVar.getVariable(deviceName);
+            if (existingConfig != null) {
+                existingConfig.update(stateUpdate);
+            }
+        }
+    }
+
+    private void getColorSensorState(ColorSensor colorSensor, CustomVariable stateVariable) {
+        stateVariable.putVariable("Red", createVariableFromValue(VariableType.READONLY_STRING, String.valueOf(colorSensor.red())));
+        stateVariable.putVariable("Green", createVariableFromValue(VariableType.READONLY_STRING, String.valueOf(colorSensor.green())));
+        stateVariable.putVariable("Blue", createVariableFromValue(VariableType.READONLY_STRING, String.valueOf(colorSensor.blue())));
+
+        // Additional handling for preferred methods implemented by common sensors i.e. Rev V3
+        if (colorSensor instanceof NormalizedColorSensor) {
+            NormalizedColorSensor normColorSensor = (NormalizedColorSensor) colorSensor;
+            NormalizedRGBA reading = normColorSensor.getNormalizedColors();
+            stateVariable.putVariable("Normalized Red", createVariableFromValue(VariableType.READONLY_STRING, String.valueOf(reading.red)));
+            stateVariable.putVariable("Normalized Green", createVariableFromValue(VariableType.READONLY_STRING, String.valueOf(reading.green)));
+            stateVariable.putVariable("Normalized Blue", createVariableFromValue(VariableType.READONLY_STRING, String.valueOf(reading.blue)));
+        }
+    }
+
     /* -------------------- Utilities --------------------- */
 
     /**
@@ -377,6 +556,18 @@ public class HardwareOpMode extends OpMode {
                 break;
             }
         }
-        return numericPart.equals("173") ? "Control Hub" : "Expansion Hub " + numericPart;
+        return numericPart.startsWith("173") ? "Control Hub" : "Expansion Hub " + numericPart;
+    }
+
+    private String extractI2CPort(String connectionInfo) {
+        String trimmedString = connectionInfo.substring(connectionInfo.indexOf("bus"));
+        String numericPart = "";
+        for (int i = 0; i < trimmedString.length(); i++) {
+            if (Character.isDigit(trimmedString.charAt(i))) {
+                numericPart = trimmedString.substring(i);
+                break;
+            }
+        }
+        return numericPart.substring(0, 1);
     }
 }

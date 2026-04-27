@@ -17,14 +17,19 @@ import com.acmerobotics.dashboard.config.Config;
 import com.acmerobotics.dashboard.config.ValueProvider;
 import com.acmerobotics.dashboard.config.reflection.ReflectionConfig;
 import com.acmerobotics.dashboard.config.variable.CustomVariable;
+import com.acmerobotics.dashboard.limelight.LimelightProxyManager;
+import com.acmerobotics.dashboard.OpModeInfo;
 import com.acmerobotics.dashboard.message.Message;
+import com.acmerobotics.dashboard.message.redux.DeleteHardwareConfig;
 import com.acmerobotics.dashboard.message.redux.InitOpMode;
 import com.acmerobotics.dashboard.message.redux.ReceiveGamepadState;
 import com.acmerobotics.dashboard.message.redux.ReceiveHardwareConfigList;
 import com.acmerobotics.dashboard.message.redux.ReceiveImage;
+import com.acmerobotics.dashboard.message.redux.ReceiveLogcatErrors;
 import com.acmerobotics.dashboard.message.redux.ReceiveOpModeList;
 import com.acmerobotics.dashboard.message.redux.ReceiveRobotStatus;
 import com.acmerobotics.dashboard.message.redux.SetHardwareConfig;
+import com.acmerobotics.dashboard.message.redux.WriteHardwareConfig;
 import com.acmerobotics.dashboard.telemetry.TelemetryPacket;
 import com.qualcomm.ftccommon.FtcEventLoop;
 import com.qualcomm.ftccommon.configuration.RobotConfigFile;
@@ -36,6 +41,7 @@ import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 import com.qualcomm.robotcore.eventloop.opmode.OpModeManager;
 import com.qualcomm.robotcore.eventloop.opmode.OpModeManagerImpl;
 import com.qualcomm.robotcore.eventloop.opmode.OpModeRegistrar;
+import com.qualcomm.robotcore.exception.RobotCoreException;
 import com.qualcomm.robotcore.hardware.Gamepad;
 import com.qualcomm.robotcore.util.ElapsedTime;
 import com.qualcomm.robotcore.util.RobotLog;
@@ -47,9 +53,13 @@ import dalvik.system.DexFile;
 import fi.iki.elonen.NanoHTTPD;
 import fi.iki.elonen.NanoWSD;
 import java.io.BufferedInputStream;
+import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.StringWriter;
+import java.io.InputStreamReader;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
@@ -85,6 +95,10 @@ import org.firstinspires.ftc.robotcore.internal.system.AppUtil;
 import org.firstinspires.ftc.robotcore.internal.system.Misc;
 import org.firstinspires.ftc.robotcore.internal.webserver.WebHandler;
 import org.firstinspires.ftc.robotserver.internal.webserver.MimeTypesUtil;
+import org.xmlpull.v1.XmlPullParser;
+import org.xmlpull.v1.XmlPullParserException;
+import org.xmlpull.v1.XmlPullParserFactory;
+import org.xmlpull.v1.XmlSerializer;
 
 /**
  * Main class for interacting with the instance.
@@ -217,9 +231,11 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
 
     private final Mutex<OpModeAndStatus> activeOpMode = new Mutex<>(new OpModeAndStatus());
 
-    private final Mutex<List<String>> opModeList = new Mutex<>(new ArrayList<>());
+    private final Mutex<List<OpModeInfo>> opModeInfoList = new Mutex<>(new ArrayList<>());
 
     private ExecutorService gamepadWatchdogExecutor;
+    private ExecutorService logcatMonitorExecutor;
+    private LogcatMonitorRunnable logcatMonitorRunnable;
     private long lastGamepadTimestamp;
 
     private boolean webServerAttached;
@@ -229,6 +245,8 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
 
     private RobotConfigFileManager hardwareConfigManager = new RobotConfigFileManager();
     private final Mutex<SortedMap<String, RobotConfigFile>> hardwareConfigList = new Mutex<>(new TreeMap<>());
+
+    private final LimelightProxyManager limelightProxyManager = new LimelightProxyManager();
 
     private static class OpModeAndStatus {
         public OpMode opMode;
@@ -265,32 +283,231 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
         public void run() {
             RegisteredOpModes.getInstance().waitOpModesRegistered();
 
-            opModeList.with(l -> {
-                l.clear();
-                for (OpModeMeta opModeMeta : RegisteredOpModes.getInstance().getOpModes()) {
-                    if (opModeMeta.flavor != OpModeMeta.Flavor.SYSTEM) {
-                        l.add(opModeMeta.name);
-                    }
+            List<OpModeInfo> infoList = new ArrayList<>();
+            
+            for (OpModeMeta opModeMeta : RegisteredOpModes.getInstance().getOpModes()) {
+                if (opModeMeta.flavor != OpModeMeta.Flavor.SYSTEM) {
+                    infoList.add(new OpModeInfo(opModeMeta.name, opModeMeta.group));
                 }
-                Collections.sort(l);
-                sendAll(new ReceiveOpModeList(l));
+            }
+            
+            // Sort op mode info list by group, then by name
+            infoList.sort((a, b) -> {
+                int groupComparison = a.getGroup().compareToIgnoreCase(b.getGroup());
+                if (groupComparison != 0) {
+                    return groupComparison;
+                }
+                return a.getName().compareToIgnoreCase(b.getName());
             });
+            
+            // Update the shared opModeInfoList
+            opModeInfoList.with(infoListShared -> {
+                infoListShared.clear();
+                infoListShared.addAll(infoList);
+            });
+            
+            sendAll(new ReceiveOpModeList(infoList));
         }
     }
 
     private class ListHardwareConfigsRunnable implements Runnable {
         @Override
-        public void run(){
+        public void run() {
             hardwareConfigList.with(l -> {
                 l.clear();
-                for (RobotConfigFile file : hardwareConfigManager.getXMLFiles()){
+                for (RobotConfigFile file : hardwareConfigManager.getXMLFiles()) {
                     l.put(file.getName(), file);
                 }
+                List<HardwareConfig> hardwareConfigs = new ArrayList<>();
+
+                for (RobotConfigFile value : l.values()) {
+                    try {
+                        String name = value.getName();
+                        String xmlContent = xmlPullParserToString(value.getXml());
+                        boolean readOnly = value.isReadOnly();
+
+                        hardwareConfigs.add(new HardwareConfig(name, xmlContent, readOnly));
+
+                        RobotLog.e("Hardware Config " + name + " and is read only? " + value.isReadOnly());
+                        RobotLog.e("Hardware Config " + name + " filepath: " + value.getFullPath());
+                    } catch (java.io.FileNotFoundException | XmlPullParserException e) {
+                        RobotLog.ee(TAG, "Failed to read hardware config: " + value.getName(), e);
+                    }
+                }
+
                 sendAll(new ReceiveHardwareConfigList(
-                        new ArrayList<>(l.keySet()),
+                        hardwareConfigs,
                         hardwareConfigManager.getActiveConfig().getName()
                 ));
             });
+        }
+    }
+
+    public void deleteRobotConfigFile(String name) {
+        File targetConfig = new File(AppUtil.CONFIG_FILES_DIR.getAbsolutePath(), RobotConfigFileManager.withExtension(name));
+
+        if (targetConfig.exists()) {
+            if (targetConfig.delete()) {
+                RobotLog.e(TAG, "Successfully deleted hardware config: " + name);
+            } else {
+                RobotLog.ee(TAG, "Failed to delete hardware config: " + name, null);
+            }
+        } else {
+            RobotLog.w(TAG, "Hardware config file does not exist: " + name);
+        }
+    }
+
+    public String xmlPullParserToString(XmlPullParser parser) {
+        StringWriter writer = new StringWriter();
+        try {
+            XmlSerializer serializer = XmlPullParserFactory.newInstance().newSerializer();
+            serializer.setOutput(writer);
+
+            int eventType = parser.getEventType();
+            while (eventType != XmlPullParser.END_DOCUMENT) {
+                switch (eventType) {
+                    case XmlPullParser.START_TAG:
+                        serializer.startTag(parser.getNamespace(), parser.getName());
+                        for (int i = 0; i < parser.getAttributeCount(); i++) {
+                            serializer.attribute(
+                                    parser.getAttributeNamespace(i),
+                                    parser.getAttributeName(i),
+                                    parser.getAttributeValue(i)
+                            );
+                        }
+                        break;
+
+                    case XmlPullParser.TEXT:
+                        serializer.text(parser.getText());
+                        break;
+
+                    case XmlPullParser.END_TAG:
+                        serializer.endTag(parser.getNamespace(), parser.getName());
+                        break;
+                }
+                eventType = parser.next();
+            }
+
+            serializer.flush();
+        } catch (Exception e) {
+            e.printStackTrace();
+            return "";
+        }
+
+        return writer.toString();
+    }
+
+    private class LogcatMonitorRunnable implements Runnable {
+        private static final String OPMODE_MANAGER_TAG = "OpModeManager";
+        private volatile boolean running = true;
+
+        @Override
+        public void run() {
+            Process logcatProcess = null;
+            BufferedReader reader = null;
+            
+            try {
+                // Start logcat process filtering for OpModeManager tag
+                ProcessBuilder pb = new ProcessBuilder("logcat", "-s", OPMODE_MANAGER_TAG + ":*");
+                logcatProcess = pb.start();
+                reader = new BufferedReader(new InputStreamReader(logcatProcess.getInputStream()));
+                
+                String line;
+                List<ReceiveLogcatErrors.LogcatError> errorBuffer = new ArrayList<>();
+                
+                while (running && (line = reader.readLine()) != null) {
+                    try {
+                        // Parse logcat line format: timestamp PID TID level tag: message
+                        // Example: "01-15 10:30:45.123  1234  1234 E OpModeManager: Error message"
+                        ReceiveLogcatErrors.LogcatError error = parseLogcatLine(line);
+                        if (error != null) {
+                            errorBuffer.add(error);
+                            
+                            // Send errors in batches to avoid flooding
+                            if (errorBuffer.size() >= 10) {
+                                sendAll(new ReceiveLogcatErrors(new ArrayList<>(errorBuffer)));
+                                errorBuffer.clear();
+                            }
+                        }
+                    } catch (Exception e) {
+                        // Log parsing error but continue monitoring
+                        RobotLog.ww(TAG, "Failed to parse logcat line: " + line);
+                    }
+                    
+                    // Small delay to prevent excessive CPU usage
+                    try {
+                        Thread.sleep(50);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                }
+                
+                // Send any remaining errors
+                if (!errorBuffer.isEmpty()) {
+                    sendAll(new ReceiveLogcatErrors(errorBuffer));
+                }
+                
+            } catch (IOException e) {
+                RobotLog.ww(TAG, "Failed to start logcat monitoring: " + e.getMessage());
+            } finally {
+                if (reader != null) {
+                    try {
+                        reader.close();
+                    } catch (IOException e) {
+                        // Ignore
+                    }
+                }
+                if (logcatProcess != null) {
+                    logcatProcess.destroy();
+                }
+            }
+        }
+        
+        private ReceiveLogcatErrors.LogcatError parseLogcatLine(String line) {
+            try {
+                // Skip empty or invalid lines
+                if (line == null || line.trim().isEmpty()) {
+                    return null;
+                }
+                
+                // Look for log level indicators (E, W, I, D, V)
+                String[] parts = line.split("\\s+", 6);
+                if (parts.length < 6) {
+                    return null;
+                }
+                
+                // Extract components: timestamp, level, tag, message
+                String level = parts[4]; // Log level (E, W, I, etc.)
+                String tagAndMessage = parts[5];
+                
+                // Split tag and message at the colon
+                int colonIndex = tagAndMessage.indexOf(':');
+                if (colonIndex == -1) {
+                    return null;
+                }
+                
+                String tag = tagAndMessage.substring(0, colonIndex).trim();
+                String message = tagAndMessage.substring(colonIndex + 1).trim();
+                
+                // Only process OpModeManager messages
+                if (!OPMODE_MANAGER_TAG.equals(tag)) {
+                    return null;
+                }
+                
+                return new ReceiveLogcatErrors.LogcatError(
+                    System.currentTimeMillis(),
+                    level,
+                    tag,
+                    message
+                );
+            } catch (Exception e) {
+                return null;
+            }
+        }
+        
+        public void stop() {
+            running = false;
         }
     }
 
@@ -749,6 +966,30 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
         }
     }
 
+    private void attemptRestart() {
+        // Soft-restart to allow the new config to take effect
+        // This is admittedly pretty sketchy so we'll do it in a try/catch
+        try {
+            // We can't just cast this to FtcRobotControllerActivity because that would create a dependency
+            Activity robotControllerActivity = AppUtil.getInstance().getRootActivity();
+            // When called, this method has the ability to perform a restart
+            Method selectedMethod = robotControllerActivity.getClass().getMethod("onOptionsItemSelected", MenuItem.class);
+
+            int id = robotControllerActivity.getResources().getIdentifier("action_restart_robot", "id", "com.qualcomm.ftcrobotcontroller");
+
+            // Spoofs the MenuItem parameter to imitate a restart button-press
+            MenuItem item = (MenuItem) Proxy.newProxyInstance(
+                    MenuItem.class.getClassLoader(),
+                    new Class<?>[] { MenuItem.class },
+                    (proxy, method, args) -> "getItemId".equals(method.getName()) ? id : null
+            );
+
+            selectedMethod.invoke(robotControllerActivity, item);
+        } catch (Exception e){
+            RobotLog.ww(TAG, "Something went wrong when reflecting to restart the robot.");
+        }
+    }
+
     private class DashWebSocket extends NanoWSD.WebSocket implements SendFun {
         final SocketHandler sh = core.newSocket(this);
 
@@ -772,18 +1013,30 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
         protected void onOpen() {
             sh.onOpen();
 
-            opModeList.with(l -> {
-                if (l.size() > 0) {
-                    send(new ReceiveOpModeList(l));
+            opModeInfoList.with(infoList -> {
+                if (!infoList.isEmpty()) {
+                    send(new ReceiveOpModeList(new ArrayList<>(infoList)));
                 }
             });
 
             hardwareConfigList.with(l -> {
                 if (!l.isEmpty()){
+                    List<HardwareConfig> hardwareConfigs = new ArrayList<>();
+
+                    for (RobotConfigFile value : l.values()) {
+                        try {
+                            String xmlContent = xmlPullParserToString(value.getXml());
+                            boolean readOnly = value.isReadOnly();
+
+                            hardwareConfigs.add(new HardwareConfig(value.getName(), xmlContent, readOnly));
+                        } catch (java.io.FileNotFoundException | XmlPullParserException e) {
+                            RobotLog.ee(TAG, "Failed to read hardware config: " + value.getName(), e);
+                        }
+                    }
                     send(new ReceiveHardwareConfigList(
-                            new ArrayList<>(l.keySet()),
-                            hardwareConfigManager.getActiveConfig().getName())
-                    );
+                            hardwareConfigs,
+                            hardwareConfigManager.getActiveConfig().getName()
+                    ));
                 }
             });
 
@@ -844,27 +1097,58 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
                            hardwareConfigManager.setActiveConfig(false, l.get(hardwareConfigName));
                        });
 
-                        // Soft-restart to allow the new config to take effect
-                        // This is admittedly pretty sketchy so we'll do it in a try/catch
-                        try {
-                            // We can't just cast this to FtcRobotControllerActivity because that would create a dependency
-                            Activity robotControllerActivity = AppUtil.getInstance().getRootActivity();
-                            // When called, this method has the ability to perform a restart
-                            Method selectedMethod = robotControllerActivity.getClass().getMethod("onOptionsItemSelected", MenuItem.class);
-
-                            int id = robotControllerActivity.getResources().getIdentifier("action_restart_robot", "id", "com.qualcomm.ftcrobotcontroller");
-
-                            // Spoofs the MenuItem parameter to imitate a restart button-press
-                            MenuItem item = (MenuItem) Proxy.newProxyInstance(
-                                    MenuItem.class.getClassLoader(),
-                                    new Class<?>[] { MenuItem.class },
-                                    (proxy, method, args) -> "getItemId".equals(method.getName()) ? id : null
-                            );
-
-                            selectedMethod.invoke(robotControllerActivity, item);
-                        } catch (Exception e){
-                            RobotLog.ww(TAG, "Something went wrong when reflecting to restart the robot.");
+                        attemptRestart();
+                    });
+                    break;
+                }
+                case WRITE_HARDWARE_CONFIG: {
+                    String hardwareConfigName = ((WriteHardwareConfig) msg).getHardwareConfigName();
+                    String hardwareConfigContents = ((WriteHardwareConfig) msg).getHardwareConfigContents();
+                    activeOpMode.with(o -> {
+                        // Don't allow changing the config unless stopped. Who knows what undefined behavior that would cause
+                        if(o.status != RobotStatus.OpModeStatus.STOPPED &&
+                                !opModeManager.getActiveOpModeName().equals(OpModeManager.DEFAULT_OP_MODE_NAME)) {
+                            return;
                         }
+
+                        // Write hardware config
+                        try {
+                            hardwareConfigManager.writeToFile(new RobotConfigFile(hardwareConfigManager, hardwareConfigName), false, hardwareConfigContents);
+                        } catch (RobotCoreException | IOException e) {
+                            Log.w(TAG, "Error writing hardware config: " + hardwareConfigName, e);
+                        }
+
+                        // Update the hardware config list
+                        new ListHardwareConfigsRunnable().run();
+
+                        // Set active config to new config
+                        hardwareConfigList.with(l -> {
+                            hardwareConfigManager.setActiveConfig(false, l.get(hardwareConfigName));
+                        });
+
+                        attemptRestart();
+                    });
+                    break;
+                }
+                case DELETE_HARDWARE_CONFIG: {
+                    String hardwareConfigName = ((DeleteHardwareConfig) msg).getHardwareConfigName();
+                    activeOpMode.with(o -> {
+                        // Don't allow deleting the config unless stopped. Who knows what undefined behavior that would cause
+                        if(o.status != RobotStatus.OpModeStatus.STOPPED &&
+                                !opModeManager.getActiveOpModeName().equals(OpModeManager.DEFAULT_OP_MODE_NAME)) {
+                            return;
+                        }
+
+                        deleteRobotConfigFile(hardwareConfigName);
+
+                        hardwareConfigList.with(l -> {
+                            l.remove(hardwareConfigName);
+                            if (hardwareConfigManager.getActiveConfig().getName().equals(hardwareConfigName)) {
+                                hardwareConfigManager.setActiveConfig(false, null);
+                            }
+                        });
+
+                        attemptRestart();
                     });
                     break;
                 }
@@ -933,6 +1217,12 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
         gamepadWatchdogExecutor = ThreadPool.newSingleThreadExecutor("gamepad watchdog");
         gamepadWatchdogExecutor.submit(new GamepadWatchdogRunnable());
 
+        logcatMonitorExecutor = ThreadPool.newSingleThreadExecutor("logcat monitor");
+        logcatMonitorRunnable = new LogcatMonitorRunnable();
+        logcatMonitorExecutor.submit(logcatMonitorRunnable);
+
+        limelightProxyManager.start();
+
         core.enabled = true;
 
         updateStatusView();
@@ -947,7 +1237,16 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
 
         gamepadWatchdogExecutor.shutdownNow();
 
+        if (logcatMonitorRunnable != null) {
+            logcatMonitorRunnable.stop();
+        }
+        if (logcatMonitorExecutor != null) {
+            logcatMonitorExecutor.shutdownNow();
+        }
+
         stopCameraStream();
+
+        limelightProxyManager.stop();
 
         core.enabled = false;
 
@@ -1188,7 +1487,7 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
             new OpModeMeta.Builder()
                 .setName("Enable/Disable Dashboard")
                 .setFlavor(OpModeMeta.Flavor.TELEOP)
-                .setGroup("dash")
+                .setGroup("Dashboard")
                 .build(),
             new LinearOpMode() {
                 @Override

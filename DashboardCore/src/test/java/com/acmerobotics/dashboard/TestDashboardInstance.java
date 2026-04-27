@@ -7,12 +7,14 @@ import com.acmerobotics.dashboard.message.redux.ReceiveHardwareConfigList;
 import com.acmerobotics.dashboard.message.redux.ReceiveOpModeList;
 import com.acmerobotics.dashboard.message.redux.ReceiveRobotStatus;
 import com.acmerobotics.dashboard.message.redux.SetHardwareConfig;
+import com.acmerobotics.dashboard.OpModeInfo;
 import com.acmerobotics.dashboard.telemetry.TelemetryPacket;
-import com.acmerobotics.dashboard.testopmode.TestOpMode;
 import com.acmerobotics.dashboard.testopmode.TestOpModeManager;
 import fi.iki.elonen.NanoHTTPD;
 import fi.iki.elonen.NanoWSD;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.stream.Collectors;
 
 enum TestEnum {
@@ -61,15 +63,31 @@ public class TestDashboardInstance {
             sh.onOpen();
 
             opModeManager.setSendFun(this);
-            send(new ReceiveOpModeList(
-                opModeManager
-                    .getTestOpModes()
-                    .stream().map(TestOpMode::getName)
-                    .collect(Collectors.toList())
-            ));
+            
+            List<OpModeInfo> opModeInfoList = opModeManager
+                .getTestOpModes()
+                .stream().map(testOpMode -> new OpModeInfo(testOpMode.getName(), "Test"))
+                .collect(Collectors.toList());
+            
+            send(new ReceiveOpModeList(opModeInfoList));
+
+
+            List<HardwareConfig> hardwareConfigs = new ArrayList<>();
+            List<String> configNames = hardwareConfigManager.getTestHardwareConfigs();
+            List<String> configXmls = hardwareConfigManager.getActiveConfigXml();
+            List<Boolean> readOnlyFlags = hardwareConfigManager.getIsReadOnly();
+
+            for (int i = 0; i < configNames.size(); i++) {
+                hardwareConfigs.add(new HardwareConfig(
+                        configNames.get(i),
+                        configXmls.get(i),
+                        readOnlyFlags.get(i)
+                ));
+            }
+
             send(new ReceiveHardwareConfigList(
-                hardwareConfigManager.getTestHardwareConfigs(),
-                hardwareConfigManager.getActiveHardwareConfig()
+                    hardwareConfigs,
+                    hardwareConfigManager.getActiveHardwareConfig()
             ));
         }
 
@@ -124,8 +142,22 @@ public class TestDashboardInstance {
 
                     // In the testing instance we must resend this data manually or things will get out of sync.
                     // In a live environment the restart will cause this data to be resent automatically.
+                    List<HardwareConfig> hardwareConfigs = new ArrayList<>();
+                    List<String> configNames = hardwareConfigManager.getTestHardwareConfigs();
+                    List<String> configXmls = hardwareConfigManager.getActiveConfigXml();
+                    List<Boolean> readOnlyFlags = hardwareConfigManager.getIsReadOnly();
+
+                    // Combine the parallel lists into POJOs
+                    for (int i = 0; i < configNames.size(); i++) {
+                        hardwareConfigs.add(new HardwareConfig(
+                                configNames.get(i),
+                                configXmls.get(i),
+                                readOnlyFlags.get(i)
+                        ));
+                    }
+
                     send(new ReceiveHardwareConfigList(
-                            hardwareConfigManager.getTestHardwareConfigs(),
+                            hardwareConfigs,
                             hardwareConfigManager.getActiveHardwareConfig()
                     ));
                     break;

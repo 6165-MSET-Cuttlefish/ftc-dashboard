@@ -1,17 +1,22 @@
 package com.acmerobotics.dashboard.message;
 
 import com.acmerobotics.dashboard.message.redux.GetConfig;
+import com.acmerobotics.dashboard.message.redux.GetConfigBaseline;
 import com.acmerobotics.dashboard.message.redux.GetRobotStatus;
 import com.acmerobotics.dashboard.message.redux.InitOpMode;
 import com.acmerobotics.dashboard.message.redux.ReceiveConfig;
+import com.acmerobotics.dashboard.message.redux.ReceiveConfigBaseline;
 import com.acmerobotics.dashboard.message.redux.ReceiveGamepadState;
 import com.acmerobotics.dashboard.message.redux.ReceiveHardwareConfigList;
 import com.acmerobotics.dashboard.message.redux.ReceiveImage;
+import com.acmerobotics.dashboard.message.redux.ReceiveLogcatErrors;
 import com.acmerobotics.dashboard.message.redux.ReceiveOpModeList;
 import com.acmerobotics.dashboard.message.redux.ReceiveRobotStatus;
 import com.acmerobotics.dashboard.message.redux.ReceiveTelemetry;
 import com.acmerobotics.dashboard.message.redux.SaveConfig;
 import com.acmerobotics.dashboard.message.redux.SetHardwareConfig;
+import com.acmerobotics.dashboard.message.redux.WriteHardwareConfig;
+import com.acmerobotics.dashboard.message.redux.DeleteHardwareConfig;
 import com.acmerobotics.dashboard.message.redux.StartOpMode;
 import com.acmerobotics.dashboard.message.redux.StopOpMode;
 
@@ -31,8 +36,10 @@ public enum MessageType {
 
     /* config */
     GET_CONFIG(GetConfig.class),
+    GET_CONFIG_BASELINE(GetConfigBaseline.class),
     SAVE_CONFIG(SaveConfig.class),
     RECEIVE_CONFIG(ReceiveConfig.class),
+    RECEIVE_CONFIG_BASELINE(ReceiveConfigBaseline.class),
 
     /* telemetry */
     RECEIVE_TELEMETRY(ReceiveTelemetry.class),
@@ -45,7 +52,12 @@ public enum MessageType {
 
     /* hardware config */
     RECEIVE_HARDWARE_CONFIG_LIST(ReceiveHardwareConfigList.class),
-    SET_HARDWARE_CONFIG(SetHardwareConfig.class);
+    SET_HARDWARE_CONFIG(SetHardwareConfig.class),
+    WRITE_HARDWARE_CONFIG(WriteHardwareConfig.class),
+    DELETE_HARDWARE_CONFIG(DeleteHardwareConfig.class),
+
+    /* logcat errors */
+    RECEIVE_LOGCAT_ERRORS(ReceiveLogcatErrors.class);
 
     final Class<? extends Message> msgClass;
 
