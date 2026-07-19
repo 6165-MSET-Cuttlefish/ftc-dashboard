@@ -72,6 +72,19 @@ function validAndModified(state: ConfigVarState): ConfigVar | null {
   }
 }
 
+const PINNED_STORAGE_KEY = 'pinnedConfigOpModes';
+
+function loadPinned(): string[] {
+  try {
+    const stored = JSON.parse(
+      localStorage.getItem(PINNED_STORAGE_KEY) ?? '[]',
+    );
+    return Array.isArray(stored) ? stored.filter((k) => typeof k === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
 type ConfigViewProps = BaseViewProps & BaseViewHeadingProps;
 
 const ConfigView = ({
@@ -100,6 +113,17 @@ const ConfigView = ({
 
   // State for filtering only baseline-modified variables
   const [showOnlyModified, setShowOnlyModified] = useState(false);
+
+  // Pinned op mode categories, persisted per user across sessions
+  const [pinnedKeys, setPinnedKeys] = useState<string[]>(loadPinned);
+
+  const togglePin = (key: string) => {
+    const newPinned = pinnedKeys.includes(key)
+      ? pinnedKeys.filter((k) => k !== key)
+      : [...pinnedKeys, key];
+    setPinnedKeys(newPinned);
+    localStorage.setItem(PINNED_STORAGE_KEY, JSON.stringify(newPinned));
+  };
 
   // Helper function to check if a configuration variable has baseline modifications
   const hasBaselineModifications = (
@@ -161,7 +185,15 @@ const ConfigView = ({
     });
   }
 
-  sortedKeys.sort();
+  // Pinned categories first (alphabetical among themselves), then the rest
+  sortedKeys.sort((a, b) => {
+    const aPinned = pinnedKeys.includes(a);
+    const bPinned = pinnedKeys.includes(b);
+    if (aPinned !== bPinned) {
+      return aPinned ? -1 : 1;
+    }
+    return a.localeCompare(b);
+  });
 
   return (
     <BaseView isUnlocked={isUnlocked}>
@@ -229,6 +261,8 @@ const ConfigView = ({
                     : null
                 }
                 showOnlyModified={showOnlyModified}
+                pinned={pinnedKeys.includes(key)}
+                onTogglePin={() => togglePin(key)}
                 onChange={(newState) =>
                   dispatch({
                     type: 'UPDATE_CONFIG',
