@@ -161,6 +161,13 @@ const listContent = [
     customStyles: 'focus:ring-lime-600',
     iconBg: 'bg-lime-500',
   },
+  {
+    title: 'Log View',
+    view: ConfigurableView.LOG_VIEW,
+    icon: <SubjectIcon className="h-6 w-6 text-white" />,
+    customStyles: 'focus:ring-fuchsia-600',
+    iconBg: 'bg-fuchsia-500',
+  },
 ];
 
 const ViewPicker = (props: ViewPickerProps) => {

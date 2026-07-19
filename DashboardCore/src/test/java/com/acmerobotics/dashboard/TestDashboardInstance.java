@@ -4,6 +4,7 @@ import com.acmerobotics.dashboard.config.ValueProvider;
 import com.acmerobotics.dashboard.message.Message;
 import com.acmerobotics.dashboard.message.redux.InitOpMode;
 import com.acmerobotics.dashboard.message.redux.ReceiveHardwareConfigList;
+import com.acmerobotics.dashboard.message.redux.ReceiveLogcatErrors;
 import com.acmerobotics.dashboard.message.redux.ReceiveOpModeList;
 import com.acmerobotics.dashboard.message.redux.ReceiveRobotStatus;
 import com.acmerobotics.dashboard.message.redux.SetHardwareConfig;
@@ -14,7 +15,9 @@ import fi.iki.elonen.NanoHTTPD;
 import fi.iki.elonen.NanoWSD;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Random;
 import java.util.stream.Collectors;
 
 enum TestEnum {
@@ -259,10 +262,47 @@ public class TestDashboardInstance {
             throw new RuntimeException(e);
         }
 
+        startFakeLogcatEmitter();
+
         while (true) {
             opModeManager.loop();
             Thread.yield();
         }
+    }
+
+    // Emits fake logcat lines so the client's Log View can be exercised
+    // without a robot
+    private void startFakeLogcatEmitter() {
+        Thread emitter = new Thread(() -> {
+            String[] levels = {"INFO", "DEBUG", "WARN", "ERROR", "VERBOSE"};
+            String[] messages = {
+                "OpMode initialized",
+                "Loop time: 12ms",
+                "Battery voltage: 12.4V",
+                "IMU calibration complete",
+                "Encoder positions reset",
+                "Motor power set to 0.75",
+                "Vision pipeline latency: 33ms",
+            };
+            Random random = new Random();
+            while (true) {
+                try {
+                    Thread.sleep(1000 + random.nextInt(1000));
+                } catch (InterruptedException e) {
+                    return;
+                }
+                ReceiveLogcatErrors.LogcatError entry = new ReceiveLogcatErrors.LogcatError(
+                    System.currentTimeMillis(),
+                    levels[random.nextInt(levels.length)],
+                    "OpModeManager",
+                    messages[random.nextInt(messages.length)]
+                );
+                core.sendAll(new ReceiveLogcatErrors(
+                    Collections.singletonList(entry)));
+            }
+        }, "fake logcat emitter");
+        emitter.setDaemon(true);
+        emitter.start();
     }
 
     public void addData(String x, Object o) {

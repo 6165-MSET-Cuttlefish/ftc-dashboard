@@ -1,12 +1,77 @@
-import { CSSProperties, Fragment, useId } from 'react';
+import { CSSProperties, Fragment, useId, useState } from 'react';
+import { useDispatch, useSelector } from 'react-redux';
 import { Dialog, Transition } from '@headlessui/react';
 import clsx from 'clsx';
 
 import { ReactComponent as PaletteIcon } from '@/assets/icons/palette.svg';
 import { ReactComponent as DarkIcon } from '@/assets/icons/dark_mode.svg';
 import { ReactComponent as LightIcon } from '@/assets/icons/light_mode.svg';
+import { ReactComponent as SubjectIcon } from '@/assets/icons/subject.svg';
 
 import { colors, Colors, useTheme, useThemeDispatch } from '@/hooks/useTheme';
+import { RootState } from '@/store/reducers';
+import { setMaxLogEntries } from '@/store/actions/logRecorder';
+import {
+  MIN_MAX_RECORDED_ENTRIES,
+  MAX_MAX_RECORDED_ENTRIES,
+} from '@/store/types/logRecorder';
+
+function MaxLogEntriesInput() {
+  const id = useId();
+  const dispatch = useDispatch();
+
+  const maxEntries = useSelector(
+    (state: RootState) => state.logRecorder.maxEntries,
+  );
+  const [draft, setDraft] = useState(String(maxEntries));
+
+  const commit = () => {
+    const parsed = parseInt(draft, 10);
+    if (!isNaN(parsed)) {
+      dispatch(setMaxLogEntries(parsed));
+    }
+    // Reflect the clamped/stored value (or reset an invalid draft)
+    setDraft((current) => {
+      const parsedCurrent = parseInt(current, 10);
+      return isNaN(parsedCurrent)
+        ? String(maxEntries)
+        : String(
+            Math.min(
+              MAX_MAX_RECORDED_ENTRIES,
+              Math.max(MIN_MAX_RECORDED_ENTRIES, parsedCurrent),
+            ),
+          );
+    });
+  };
+
+  return (
+    <div className="mt-3 flex items-center justify-between px-6">
+      <label htmlFor={id}>
+        Max recorded log entries
+        <span className="block text-xs text-gray-500 dark:text-slate-400">
+          Oldest Log View lines are dropped past this limit (
+          {MIN_MAX_RECORDED_ENTRIES.toLocaleString()}–
+          {MAX_MAX_RECORDED_ENTRIES.toLocaleString()})
+        </span>
+      </label>
+      <input
+        id={id}
+        type="number"
+        min={MIN_MAX_RECORDED_ENTRIES}
+        max={MAX_MAX_RECORDED_ENTRIES}
+        className="w-28 rounded border border-gray-300 bg-white px-2 py-1 text-right dark:border-slate-500 dark:bg-slate-600"
+        value={draft}
+        onChange={(evt) => setDraft(evt.target.value)}
+        onBlur={commit}
+        onKeyDown={(evt) => {
+          if (evt.key === 'Enter') {
+            evt.currentTarget.blur();
+          }
+        }}
+      />
+    </div>
+  );
+}
 
 export default function SettingsModal({
   isOpen,
@@ -141,6 +206,15 @@ export default function SettingsModal({
                     </div>
                   ))}
                 </fieldset>
+                {/* Logging */}
+                <div className="mt-5 flex items-center justify-between px-6">
+                  <h3 className="text-xl font-bold">
+                    <SubjectIcon className="inline h-5 w-5 translate-y-[-1px] text-gray-800 dark:text-slate-200" />{' '}
+                    Logging
+                  </h3>
+                </div>
+                <div className="w-[calc(100% - 0.75rem)] mx-3 mt-2 h-px bg-gray-300 dark:bg-slate-500" />
+                <MaxLogEntriesInput />
               </Dialog.Panel>
             </Transition.Child>
           </div>

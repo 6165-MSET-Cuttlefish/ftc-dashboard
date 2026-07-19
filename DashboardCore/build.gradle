@@ -29,6 +29,14 @@ test {
     useJUnitPlatform()
 }
 
+// Mock dashboard server for developing the client without a robot:
+// ./gradlew :DashboardCore:testServer (then `npm run dev` in client/)
+task testServer(type: JavaExec) {
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.acmerobotics.dashboard.TestServer'
+    standardInput = System.in
+}
+
 project.afterEvaluate {
     publishing {
         publications {
