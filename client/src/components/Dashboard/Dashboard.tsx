@@ -11,6 +11,7 @@ import { ReactComponent as DisconnectedIcon } from '@/assets/icons/disconnected.
 import { ReactComponent as SettingsIcon } from '@/assets/icons/settings.svg';
 import SettingsModal from './SettingsModal';
 import { startSocketWatcher } from '@/store/middleware/socketMiddleware';
+import useLayoutShortcuts from '@/hooks/useLayoutShortcuts';
 
 export default function Dashboard() {
   const socket = useSelector((state: RootState) => state.socket);
@@ -24,6 +25,8 @@ export default function Dashboard() {
   const dispatch = useDispatch();
 
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+
+  useLayoutShortcuts();
 
   useEffect(() => {
     dispatch(getLayoutPreset());

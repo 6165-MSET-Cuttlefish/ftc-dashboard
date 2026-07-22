@@ -13,6 +13,9 @@ import TelemetryView from '@/components/views/TelemetryView';
 import FieldView from '@/components/views/FieldView/FieldView';
 import HardwareView from '@/components/views/HardwareView';
 
+// When adding a preset here (and to LAYOUT_DETAILS below), also add it to
+// PRESET_ORDER in @/hooks/useLayoutShortcuts.ts so it gets a keyboard
+// shortcut and is included in the Alt/Option + [ and ] cycling order.
 const LayoutPreset = {
   DEFAULT: 'DEFAULT',
   FIELD: 'FIELD',

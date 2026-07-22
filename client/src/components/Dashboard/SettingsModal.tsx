@@ -1,12 +1,14 @@
 import { CSSProperties, Fragment, useId } from 'react';
-import { Dialog, Transition } from '@headlessui/react';
+import { Dialog, Disclosure, Transition } from '@headlessui/react';
 import clsx from 'clsx';
 
 import { ReactComponent as PaletteIcon } from '@/assets/icons/palette.svg';
 import { ReactComponent as DarkIcon } from '@/assets/icons/dark_mode.svg';
 import { ReactComponent as LightIcon } from '@/assets/icons/light_mode.svg';
+import { ReactComponent as ExpandMoreIcon } from '@/assets/icons/expand_more.svg';
 
 import { colors, Colors, useTheme, useThemeDispatch } from '@/hooks/useTheme';
+import { MODIFIER_NOTE, SHORTCUTS } from '@/hooks/useLayoutShortcuts';
 
 export default function SettingsModal({
   isOpen,
@@ -141,6 +143,47 @@ export default function SettingsModal({
                     </div>
                   ))}
                 </fieldset>
+                {/* Keyboard Shortcuts */}
+                <Disclosure>
+                  {({ open }) => (
+                    <div className="mt-5">
+                      <Disclosure.Button className="flex w-full items-center justify-between px-6">
+                        <h3 className="text-xl font-bold">
+                          <span className="mr-1 inline-block translate-y-[-1px] text-gray-800 dark:text-slate-200">
+                            ⌨
+                          </span>{' '}
+                          Keyboard Shortcuts
+                        </h3>
+                        <ExpandMoreIcon
+                          className={clsx(
+                            'h-6 w-6 text-gray-800 transition-transform dark:text-slate-200',
+                            open && 'rotate-180',
+                          )}
+                        />
+                      </Disclosure.Button>
+                      <div className="w-[calc(100% - 0.75rem)] mx-3 mt-2 h-px bg-gray-300 dark:bg-slate-500" />
+                      <Disclosure.Panel className="mt-3 px-6">
+                        <p className="mb-2 text-xs text-gray-500 dark:text-slate-400">
+                          {MODIFIER_NOTE}
+                        </p>
+                        <table className="w-full text-sm">
+                          <tbody>
+                            {SHORTCUTS.map(({ keys, description }) => (
+                              <tr key={keys}>
+                                <td className="py-1">{description}</td>
+                                <td className="py-1 text-right">
+                                  <kbd className="rounded border border-gray-300 bg-gray-100 px-1.5 py-0.5 font-mono text-xs dark:border-slate-500 dark:bg-slate-600">
+                                    {keys}
+                                  </kbd>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </Disclosure.Panel>
+                    </div>
+                  )}
+                </Disclosure>
               </Dialog.Panel>
             </Transition.Child>
           </div>
