@@ -14,6 +14,7 @@ import BaseView, {
 import { ReactComponent as SaveIcon } from '@/assets/icons/save.svg';
 import { ReactComponent as RefreshIcon } from '@/assets/icons/refresh.svg';
 import { ReactComponent as FilterIcon } from '@/assets/icons/filter.svg';
+import { ReactComponent as ClearPinsIcon } from '@/assets/icons/delete_sweep.svg';
 
 import { RootState, useAppDispatch } from '@/store/reducers';
 import { HARDWARE_CATEGORY } from '@/store/reducers/config';
@@ -125,6 +126,11 @@ const ConfigView = ({
     localStorage.setItem(PINNED_STORAGE_KEY, JSON.stringify(newPinned));
   };
 
+  const clearAllPins = () => {
+    setPinnedKeys([]);
+    localStorage.removeItem(PINNED_STORAGE_KEY);
+  };
+
   // Helper function to check if a configuration variable has baseline modifications
   const hasBaselineModifications = (
     varState: ConfigVarState,
@@ -202,6 +208,21 @@ const ConfigView = ({
           Configuration
         </BaseViewHeading>
         <BaseViewIcons>
+          <BaseViewIconButton
+            title={
+              pinnedKeys.length > 0
+                ? 'Clear all pinned op modes'
+                : 'No pinned op modes'
+            }
+            onClick={clearAllPins}
+            disabled={pinnedKeys.length === 0}
+            style={{
+              opacity: pinnedKeys.length === 0 ? 0.4 : undefined,
+              cursor: pinnedKeys.length === 0 ? 'default' : undefined,
+            }}
+          >
+            <ClearPinsIcon className="h-6 w-6" />
+          </BaseViewIconButton>
           <BaseViewIconButton
             title={
               showOnlyModified
