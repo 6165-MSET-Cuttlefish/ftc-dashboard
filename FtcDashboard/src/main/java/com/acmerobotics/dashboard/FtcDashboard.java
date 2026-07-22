@@ -398,23 +398,32 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
     }
 
     private class LogcatMonitorRunnable implements Runnable {
-        private static final String OPMODE_MANAGER_TAG = "OpModeManager";
         private volatile boolean running = true;
 
         @Override
         public void run() {
             Process logcatProcess = null;
             BufferedReader reader = null;
-            
+
             try {
-                // Start logcat process filtering for OpModeManager tag
-                ProcessBuilder pb = new ProcessBuilder("logcat", "-s", OPMODE_MANAGER_TAG + ":*");
+                // Capture every tag at every level ("*:V" is logcat's default with no filterspec), so
+                // the Log View shows the full device log stream, not just errors. The output format
+                // must be pinned to "threadtime" (the same format the SDK's RobotLog uses) because
+                // parseLogcatLine() assumes that column layout; logcat's default "brief" format has a
+                // different layout and every line would fail to parse.
+                ProcessBuilder pb = new ProcessBuilder("logcat", "-v", "threadtime");
+                pb.redirectErrorStream(true);
                 logcatProcess = pb.start();
                 reader = new BufferedReader(new InputStreamReader(logcatProcess.getInputStream()));
-                
+
+                // Emit a marker straight to the client (not via logcat) so the Log View shows a
+                // definite "monitor started" line. If the view is silent, this distinguishes a dead
+                // monitor thread from a live one that simply isn't seeing any log output.
+                sendMonitorNotice("INFO", "logcat monitor started");
+
                 String line;
                 List<ReceiveLogcatErrors.LogcatError> errorBuffer = new ArrayList<>();
-                
+
                 while (running && (line = reader.readLine()) != null) {
                     try {
                         // Parse logcat line format: timestamp PID TID level tag: message
@@ -422,34 +431,34 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
                         ReceiveLogcatErrors.LogcatError error = parseLogcatLine(line);
                         if (error != null) {
                             errorBuffer.add(error);
-                            
-                            // Send errors in batches to avoid flooding
-                            if (errorBuffer.size() >= 10) {
-                                sendAll(new ReceiveLogcatErrors(new ArrayList<>(errorBuffer)));
-                                errorBuffer.clear();
-                            }
                         }
                     } catch (Exception e) {
                         // Log parsing error but continue monitoring
                         RobotLog.ww(TAG, "Failed to parse logcat line: " + line);
                     }
-                    
-                    // Small delay to prevent excessive CPU usage
-                    try {
-                        Thread.sleep(50);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        break;
+
+                    // Flush once the batch is large enough to be worth sending, or as soon as no more
+                    // lines are immediately available. Flushing on drain is essential: OpModeManager
+                    // logging is sparse, so waiting for a fixed batch size would leave a handful of
+                    // lines stuck in the buffer indefinitely and the client would appear to hang
+                    // waiting for logs that were already parsed.
+                    if (!errorBuffer.isEmpty()
+                            && (errorBuffer.size() >= 50 || !reader.ready())) {
+                        sendAll(new ReceiveLogcatErrors(new ArrayList<>(errorBuffer)));
+                        errorBuffer.clear();
                     }
                 }
-                
+
                 // Send any remaining errors
                 if (!errorBuffer.isEmpty()) {
                     sendAll(new ReceiveLogcatErrors(errorBuffer));
                 }
-                
+
             } catch (IOException e) {
                 RobotLog.ww(TAG, "Failed to start logcat monitoring: " + e.getMessage());
+                // Surface the failure in the Log View itself; otherwise it looks identical to a
+                // healthy-but-empty stream.
+                sendMonitorNotice("ERROR", "logcat monitor failed to start: " + e.getMessage());
             } finally {
                 if (reader != null) {
                     try {
@@ -461,9 +470,20 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
                 if (logcatProcess != null) {
                     logcatProcess.destroy();
                 }
+                sendMonitorNotice("INFO", "logcat monitor stopped");
             }
         }
-        
+
+        // Sends a synthetic log entry directly to connected clients, bypassing logcat, so monitor
+        // lifecycle events are visible in the Log View regardless of whether logcat is producing
+        // output. Levels use the client's full-word form (see mapLevel) so they are color-coded.
+        private void sendMonitorNotice(String level, String message) {
+            List<ReceiveLogcatErrors.LogcatError> notice = new ArrayList<>();
+            notice.add(new ReceiveLogcatErrors.LogcatError(
+                    System.currentTimeMillis(), level, "FtcDashboard", message));
+            sendAll(new ReceiveLogcatErrors(notice));
+        }
+
         private ReceiveLogcatErrors.LogcatError parseLogcatLine(String line) {
             try {
                 // Skip empty or invalid lines
@@ -489,15 +509,16 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
                 
                 String tag = tagAndMessage.substring(0, colonIndex).trim();
                 String message = tagAndMessage.substring(colonIndex + 1).trim();
-                
-                // Only process OpModeManager messages
-                if (!OPMODE_MANAGER_TAG.equals(tag)) {
+
+                // Drop logcat's separator banners (e.g. "--------- beginning of main"), which have no
+                // real tag.
+                if (tag.isEmpty()) {
                     return null;
                 }
-                
+
                 return new ReceiveLogcatErrors.LogcatError(
                     System.currentTimeMillis(),
-                    level,
+                    mapLevel(level),
                     tag,
                     message
                 );
@@ -505,7 +526,22 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
                 return null;
             }
         }
-        
+
+        // logcat's threadtime format reports levels as single letters, but the client keys its level
+        // colors and labels off the full names (see LogView getLevelColor). Translate so real device
+        // logs render the same way the mock emitter's do.
+        private String mapLevel(String level) {
+            switch (level) {
+                case "E": return "ERROR";
+                case "W": return "WARN";
+                case "I": return "INFO";
+                case "D": return "DEBUG";
+                case "V": return "VERBOSE";
+                case "F": return "ERROR"; // fatal — surface as an error
+                default:  return level;
+            }
+        }
+
         public void stop() {
             running = false;
         }
