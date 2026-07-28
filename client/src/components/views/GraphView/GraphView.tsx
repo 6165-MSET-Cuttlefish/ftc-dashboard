@@ -20,10 +20,16 @@ import { ReactComponent as PauseIcon } from '@/assets/icons/pause.svg';
 
 import { RootState } from '@/store/reducers';
 import { STOP_OP_MODE_TAG } from '@/store/types';
+import { addGraphExport } from '@/store/actions/graphExports';
 import { OpModeStatus } from '@/enums/OpModeStatus';
 import { colors, ThemeConsumer } from '@/hooks/useTheme';
 import { DEFAULT_OPTIONS } from './Graph';
 import { validateInt, ValResult } from '@/components/inputs/validation';
+
+type RecordedRow = {
+  timestamp: number;
+  values: (string | null)[];
+};
 
 type GraphViewState = {
   graphing: boolean;
@@ -33,6 +39,9 @@ type GraphViewState = {
   availableKeys: string[];
   selectedKeys: string[];
   windowMs: ValResult<number>;
+  recordedKeys: string[];
+  recordedRows: RecordedRow[];
+  currentOpModeName: string;
 };
 
 const mapStateToProps = (state: RootState) => ({
@@ -40,7 +49,11 @@ const mapStateToProps = (state: RootState) => ({
   status: state.status,
 });
 
-const connector = connect(mapStateToProps);
+const mapDispatchToProps = {
+  addGraphExport,
+};
+
+const connector = connect(mapStateToProps, mapDispatchToProps);
 
 type GraphViewProps = ConnectedProps<typeof connector> &
   BaseViewProps &
@@ -63,6 +76,9 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
         value: DEFAULT_OPTIONS.windowMs,
         valid: true,
       },
+      recordedKeys: [],
+      recordedRows: [],
+      currentOpModeName: '',
     };
 
     this.containerRef = React.createRef();
@@ -72,6 +88,8 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
 
     this.userPlay = this.userPlay.bind(this);
     this.userPause = this.userPause.bind(this);
+
+    this.commitRecording = this.commitRecording.bind(this);
 
     this.handleDocumentKeydown = this.handleDocumentKeydown.bind(this);
   }
@@ -102,11 +120,23 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
       this.opmodePlay();
     }
 
+    if (
+      this.props.status.activeOpModeStatus === OpModeStatus.RUNNING &&
+      this.props.status.activeOpMode !== STOP_OP_MODE_TAG &&
+      this.props.status.activeOpMode !== this.state.currentOpModeName
+    ) {
+      this.setState({ currentOpModeName: this.props.status.activeOpMode });
+    }
+
     if (this.props.telemetry === prevProps.telemetry) return;
 
     this.setState((state) => {
       if (this.props.telemetry.length === 0) {
-        return { availableKeys: [], selectedKeys: state.selectedKeys };
+        return {
+          availableKeys: [],
+          selectedKeys: state.selectedKeys,
+          recordedRows: state.recordedRows,
+        };
       }
 
       const availableKeys = [...state.availableKeys];
@@ -120,9 +150,27 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
         }
       }
 
+      let { recordedRows } = state;
+      if (state.graphing) {
+        const newRows = this.props.telemetry
+          .filter(({ data }) =>
+            state.recordedKeys.some((k) =>
+              Object.prototype.hasOwnProperty.call(data, k),
+            ),
+          )
+          .map(({ timestamp, data }) => ({
+            timestamp,
+            values: state.recordedKeys.map((k) =>
+              Object.prototype.hasOwnProperty.call(data, k) ? data[k] : null,
+            ),
+          }));
+        recordedRows = [...state.recordedRows, ...newRows];
+      }
+
       return {
         availableKeys,
         selectedKeys: state.selectedKeys,
+        recordedRows,
       };
     });
   }
@@ -150,13 +198,17 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
       ...this.state,
       graphing: true,
       userPaused: false,
+      recordedKeys: [...this.state.selectedKeys],
+      recordedRows: [],
     });
   }
 
   stop() {
+    this.commitRecording();
     this.setState({
       ...this.state,
       graphing: false,
+      recordedRows: [],
     });
   }
 
@@ -172,6 +224,10 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
   }
 
   opmodePause() {
+    if (this.state.graphing) {
+      this.commitRecording();
+    }
+
     this.setState({
       ...this.state,
       opmodePaused: true,
@@ -179,6 +235,7 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
         this.state.userPaused || this.state.opmodePaused
           ? this.state.pausedTime
           : Date.now(),
+      recordedRows: this.state.graphing ? [] : this.state.recordedRows,
     });
   }
 
@@ -193,7 +250,42 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
     this.setState({
       ...this.state,
       opmodePaused: false,
+      recordedRows: this.state.graphing ? [] : this.state.recordedRows,
     });
+  }
+
+  commitRecording() {
+    if (
+      this.state.recordedRows.length === 0 ||
+      this.state.recordedKeys.length === 0
+    ) {
+      return;
+    }
+
+    const rowsCopy = [...this.state.recordedRows].sort(
+      (a, b) => a.timestamp - b.timestamp,
+    );
+    const t0 = rowsCopy[0].timestamp;
+
+    const header = ['time (ms)', ...this.state.recordedKeys];
+    const body = rowsCopy
+      .map((row) => [row.timestamp - t0, ...row.values].join(','))
+      .join('\r\n');
+    const csv = `${header.join(',')}\r\n${body}`;
+
+    const fileDate = new Date(rowsCopy[0].timestamp);
+    const year = fileDate.getFullYear();
+    const month = `0${fileDate.getMonth() + 1}`.slice(-2);
+    const date = `0${fileDate.getDate()}`.slice(-2);
+    const hours = `0${fileDate.getHours()}`.slice(-2);
+    const minutes = `0${fileDate.getMinutes()}`.slice(-2);
+    const seconds = `0${fileDate.getSeconds()}`.slice(-2);
+
+    const name = `${
+      this.state.currentOpModeName || 'graph'
+    } ${year}-${month}-${date}_${hours}-${minutes}-${seconds}`;
+
+    this.props.addGraphExport(name, csv);
   }
 
   render() {

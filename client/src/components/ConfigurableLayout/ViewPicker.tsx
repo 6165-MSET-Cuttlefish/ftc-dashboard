@@ -14,6 +14,7 @@ import { ReactComponent as HardwareIcon } from '@/assets/icons/hardware.svg';
 import { ReactComponent as GamepadIcon } from '@/assets/icons/gamepad.svg';
 import { ReactComponent as DeleteSweepIcon } from '@/assets/icons/delete_sweep.svg';
 import { ReactComponent as ExclamationIcon } from '@/assets/icons/exclamation.svg';
+import { ReactComponent as DownloadIcon } from '@/assets/icons/file_download.svg';
 
 type ViewPickerProps = {
   isOpen: boolean;
@@ -132,6 +133,13 @@ const listContent = [
     icon: <CameraIcon className="h-6 w-6 text-white" />,
     customStyles: 'focus:ring-green-600',
     iconBg: 'bg-green-500',
+  },
+  {
+    title: 'Graph Export View',
+    view: ConfigurableView.GRAPH_EXPORT_VIEW,
+    icon: <DownloadIcon className="h-6 w-6 text-white" />,
+    customStyles: 'focus:ring-emerald-600',
+    iconBg: 'bg-emerald-500',
   },
   {
     title: 'Hardware Config View',

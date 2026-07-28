@@ -103,3 +103,10 @@ export type {
 
 export { SET_REPLAY_OVERLAY } from './replay';
 export type { SetReplayOverlayAction } from './replay';
+
+export { ADD_GRAPH_EXPORT } from './graphExports';
+export type {
+  GraphExport,
+  GraphExportsState,
+  AddGraphExportAction,
+} from './graphExports';

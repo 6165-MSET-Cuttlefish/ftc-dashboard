@@ -20,6 +20,7 @@ import ConfigView from '@/components/views/ConfigView/ConfigView';
 import TelemetryView from '@/components/views/TelemetryView';
 import HardwareView from '@/components/views/HardwareView';
 import RecorderView from '@/components/views/RecorderView/RecorderView';
+import GraphExportView from '@/components/views/GraphExportView/GraphExportView';
 import CameraView from '@/components/views/CameraView';
 import OpModeView from '@/components/views/OpModeView';
 import LoggingView from '@/components/views/LoggingView/LoggingView';
@@ -71,6 +72,7 @@ const VIEW_MAP: { [key in ConfigurableView]: ReactElement } = {
   [ConfigurableView.TELEMETRY_VIEW]: <TelemetryView />,
   [ConfigurableView.HARDWARE_VIEW]: <HardwareView />,
   [ConfigurableView.RECORDER_VIEW]: <RecorderView />,
+  [ConfigurableView.GRAPH_EXPORT_VIEW]: <GraphExportView />,
   [ConfigurableView.CAMERA_VIEW]: <CameraView />,
   [ConfigurableView.OPMODE_VIEW]: <OpModeView />,
   [ConfigurableView.LOGGING_VIEW]: <LoggingView />,
@@ -672,7 +674,9 @@ export default function ConfigurableLayout() {
         bottom="13em"
         right="1.5em"
         onClick={addItem}
-        disabledViews={new Set([...singletonViews].filter((v) => existingViews.has(v)))}
+        disabledViews={
+          new Set([...singletonViews].filter((v) => existingViews.has(v)))
+        }
       />
     </Container>
   );
