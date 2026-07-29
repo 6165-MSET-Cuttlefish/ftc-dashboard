@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash('/c/Program Files/Android/Android Studio/jbr/bin/javap.exe' -classpath /c/Users/haoke/AppData/Local/Temp/claude/C--Users-haoke-OneDrive-Documents-ftc-dashboard/164f6597-9070-4fb8-b2dd-ac0cdcd2836a/scratchpad/sdk com.qualcomm.hardware.lynx.LynxModule)",
+      "Bash(npx tsc *)",
+      "Bash(./gradlew :DashboardCore:compileJava :FtcDashboard:compileReleaseJavaWithJavac --offline -q)",
+      "Bash(./gradlew :DashboardCore:compileTestJava --offline -q)",
+      "Bash(./gradlew :FtcDashboard:compileReleaseJavaWithJavac)",
+      "Bash(npx prettier *)",
+      "Bash(npx eslint *)",
+      "Bash(git checkout *)",
+      "Bash(git update-index *)",
+      "Bash(awk '$1==\"0\" && $2==\"0\" {print $3}')",
+      "Bash(xargs -a /tmp/nochange.txt git checkout --)",
+      "Bash(git config *)",
+      "Bash(git add *)",
+      "Bash(./gradlew :DashboardCore:test --offline -q)",
+      "Bash(echo \"EXIT=$?\")",
+      "Bash(./gradlew :DashboardCore:check)",
+      "Bash(git stash *)",
+      "Bash(./gradlew :DashboardCore:checkstyleMain)"
+    ]
+  }
+}

@@ -21,13 +21,17 @@ public class RobotStatus {
     private String warningMessage;
     private String errorMessage;
     private double batteryVoltage;
+    /**
+     * Total current draw in amps, or -1 if current monitoring is disabled.
+     */
+    private double batteryCurrent;
 
     /**
      * Creates a status object with the default values.
      */
     public RobotStatus(boolean enabled, boolean available, String activeOpMode,
                        OpModeStatus activeOpModeStatus, String warningMessage,
-                       String errorMessage, double batteryVoltage) {
+                       String errorMessage, double batteryVoltage, double batteryCurrent) {
         this.enabled = enabled;
         this.available = available;
         this.activeOpMode = activeOpMode;
@@ -35,5 +39,6 @@ public class RobotStatus {
         this.warningMessage = warningMessage;
         this.errorMessage = errorMessage;
         this.batteryVoltage = batteryVoltage;
+        this.batteryCurrent = batteryCurrent;
     }
 }

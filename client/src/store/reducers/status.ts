@@ -3,9 +3,11 @@ import {
   ReceiveOpModeListAction,
   ReceiveRobotStatusAction,
   GamepadSupportedStatus,
+  SetCurrentEnabledAction,
   RECEIVE_OP_MODE_LIST,
   RECEIVE_ROBOT_STATUS,
   GAMEPAD_SUPPORTED_STATUS,
+  SET_CURRENT_ENABLED,
   StatusState,
 } from '@/store/types';
 
@@ -19,6 +21,8 @@ const initialState: StatusState = {
   opModeInfoList: [],
   gamepadsSupported: true,
   batteryVoltage: -1.0,
+  batteryCurrent: -1.0,
+  currentEnabled: false,
 };
 
 const statusReducer = (
@@ -26,7 +30,8 @@ const statusReducer = (
   action:
     | ReceiveRobotStatusAction
     | ReceiveOpModeListAction
-    | GamepadSupportedStatus,
+    | GamepadSupportedStatus
+    | SetCurrentEnabledAction,
 ) => {
   switch (action.type) {
     case RECEIVE_ROBOT_STATUS:
@@ -43,6 +48,13 @@ const statusReducer = (
       return {
         ...state,
         gamepadsSupported: action.gamepadsSupported,
+      };
+    case SET_CURRENT_ENABLED:
+      return {
+        ...state,
+        currentEnabled: action.currentEnabled,
+        // drop the stale reading so nothing lingers on screen until the robot replies
+        batteryCurrent: -1.0,
       };
     default:
       return state;

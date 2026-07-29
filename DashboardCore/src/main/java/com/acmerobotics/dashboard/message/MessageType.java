@@ -14,6 +14,7 @@ import com.acmerobotics.dashboard.message.redux.ReceiveOpModeList;
 import com.acmerobotics.dashboard.message.redux.ReceiveRobotStatus;
 import com.acmerobotics.dashboard.message.redux.ReceiveTelemetry;
 import com.acmerobotics.dashboard.message.redux.SaveConfig;
+import com.acmerobotics.dashboard.message.redux.SetCurrentEnabled;
 import com.acmerobotics.dashboard.message.redux.SetHardwareConfig;
 import com.acmerobotics.dashboard.message.redux.WriteHardwareConfig;
 import com.acmerobotics.dashboard.message.redux.DeleteHardwareConfig;
@@ -27,6 +28,7 @@ public enum MessageType {
     /* status (also serves as a heartbeat) */
     GET_ROBOT_STATUS(GetRobotStatus.class),
     RECEIVE_ROBOT_STATUS(ReceiveRobotStatus.class),
+    SET_CURRENT_ENABLED(SetCurrentEnabled.class),
 
     /* op mode management */
     INIT_OP_MODE(InitOpMode.class),

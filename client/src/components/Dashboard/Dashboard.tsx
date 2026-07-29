@@ -3,9 +3,11 @@ import { useDispatch, useSelector } from 'react-redux';
 
 import LayoutPreset, { LayoutPresetType } from '@/enums/LayoutPreset';
 import { saveLayoutPreset, getLayoutPreset } from '@/store/actions/settings';
+import { setCurrentEnabled } from '@/store/actions/status';
 import { RootState } from '@/store/reducers';
 
 import { BaseViewIconButton } from '@/components/views/BaseView';
+import { ReactComponent as BoltIcon } from '@/assets/icons/bolt.svg';
 import { ReactComponent as ConnectedIcon } from '@/assets/icons/connected.svg';
 import { ReactComponent as DisconnectedIcon } from '@/assets/icons/disconnected.svg';
 import { ReactComponent as SettingsIcon } from '@/assets/icons/settings.svg';
@@ -20,6 +22,12 @@ export default function Dashboard() {
   const enabled = useSelector((state: RootState) => state.status.enabled);
   const batteryVoltage = useSelector(
     (state: RootState) => state.status.batteryVoltage,
+  );
+  const batteryCurrent = useSelector(
+    (state: RootState) => state.status.batteryCurrent,
+  );
+  const currentEnabled = useSelector(
+    (state: RootState) => state.status.currentEnabled,
   );
   const dispatch = useDispatch();
 
@@ -61,14 +69,35 @@ export default function Dashboard() {
             <p
               className="mx-2"
               style={{
-                width: batteryVoltage > 0 ? '120px' : '60px',
+                width: `${
+                  60 + (batteryVoltage > 0 ? 60 : 0) + (currentEnabled ? 65 : 0)
+                }px`,
                 textAlign: 'right',
               }}
             >
               {socket.pingTime}ms
               {batteryVoltage > 0 ? ` / ${batteryVoltage.toFixed(2)}V` : ''}
+              {currentEnabled
+                ? ` / ${
+                    batteryCurrent >= 0 ? batteryCurrent.toFixed(2) : '--'
+                  }A`
+                : ''}
             </p>
           )}
+          <BaseViewIconButton
+            title={
+              currentEnabled
+                ? 'Hide current draw (stops polling the hubs)'
+                : 'Show current draw (polls the hubs, adds loop time)'
+            }
+            aria-pressed={currentEnabled}
+            className={`icon-btn ml-1 h-8 w-8 hover:border-white/50 ${
+              currentEnabled ? 'border-white/70 bg-white/20' : ''
+            }`}
+            onClick={() => dispatch(setCurrentEnabled(!currentEnabled))}
+          >
+            <BoltIcon className="h-6 w-6" />
+          </BaseViewIconButton>
           {socket.isConnected ? (
             <ConnectedIcon className="ml-4 h-10 w-10 py-1" />
           ) : (

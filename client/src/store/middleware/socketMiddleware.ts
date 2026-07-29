@@ -15,10 +15,13 @@ import {
   DELETE_HARDWARE_CONFIG,
   START_OP_MODE,
   STOP_OP_MODE,
+  SET_CURRENT_ENABLED,
 } from '@/store/types';
 
 let socket: WebSocket;
 let statusSentTime: number;
+// mirrored here so the robot can be re-synced after a reconnect
+let currentEnabled = false;
 
 export function startSocketWatcher(dispatch: AppThunkDispatch) {
   setInterval(() => {
@@ -36,6 +39,13 @@ export function startSocketWatcher(dispatch: AppThunkDispatch) {
 
       socket.onopen = () => {
         dispatch(receiveConnectionStatus(true));
+
+        // the robot defaults to current monitoring off, so only speak up if it's on
+        if (currentEnabled) {
+          socket.send(
+            JSON.stringify({ type: SET_CURRENT_ENABLED, currentEnabled: true }),
+          );
+        }
       };
 
       socket.onclose = () => {
@@ -56,6 +66,17 @@ const socketMiddleware: Middleware<Record<string, unknown>, RootState> =
       case RECEIVE_ROBOT_STATUS: {
         const pingTime = Date.now() - statusSentTime;
         store.dispatch(receivePingTime(pingTime));
+
+        next(action);
+
+        break;
+      }
+      case SET_CURRENT_ENABLED: {
+        currentEnabled = action.currentEnabled;
+
+        if (socket !== undefined && socket.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify(action));
+        }
 
         next(action);
 

@@ -6,6 +6,7 @@ import com.acmerobotics.dashboard.message.redux.InitOpMode;
 import com.acmerobotics.dashboard.message.redux.ReceiveHardwareConfigList;
 import com.acmerobotics.dashboard.message.redux.ReceiveOpModeList;
 import com.acmerobotics.dashboard.message.redux.ReceiveRobotStatus;
+import com.acmerobotics.dashboard.message.redux.SetCurrentEnabled;
 import com.acmerobotics.dashboard.message.redux.SetHardwareConfig;
 import com.acmerobotics.dashboard.OpModeInfo;
 import com.acmerobotics.dashboard.telemetry.TelemetryPacket;
@@ -31,6 +32,9 @@ public class TestDashboardInstance {
     TestRobotConfigManager hardwareConfigManager = new TestRobotConfigManager();
 
     private TelemetryPacket currentPacket;
+
+    // mirrors the flag FtcDashboard keeps for the real hubs
+    private volatile boolean currentEnabled;
 
     DashboardCore core = new DashboardCore();
 
@@ -99,6 +103,26 @@ public class TestDashboardInstance {
             opModeManager.clearSendFun();
         }
 
+        private RobotStatus getRobotStatus() {
+            String opModeName;
+            RobotStatus.OpModeStatus opModeStatus;
+            if (opModeManager.getActiveOpMode() == null) {
+                opModeName = DEFAULT_OP_MODE_NAME;
+                opModeStatus = RobotStatus.OpModeStatus.STOPPED;
+            } else {
+                opModeName = opModeManager.getActiveOpMode().getName();
+                opModeStatus = opModeManager.getActiveOpMode().getOpModeStatus();
+            }
+
+            // stand-in for the hub reading: swings so the toggle is visibly live
+            double batteryCurrent = currentEnabled
+                ? 6.0 + 3.0 * Math.sin(System.currentTimeMillis() / 2000.0)
+                : -1.0;
+
+            return new RobotStatus(core.enabled, true, opModeName, opModeStatus, "", "", 12.0,
+                batteryCurrent);
+        }
+
         @Override
         protected void onMessage(NanoWSD.WebSocketFrame message) {
             String payload = message.getTextPayload();
@@ -110,19 +134,12 @@ public class TestDashboardInstance {
 
             switch (msg.getType()) {
                 case GET_ROBOT_STATUS: {
-                    String opModeName;
-                    RobotStatus.OpModeStatus opModeStatus;
-                    if (opModeManager.getActiveOpMode() == null) {
-                        opModeName = DEFAULT_OP_MODE_NAME;
-                        opModeStatus = RobotStatus.OpModeStatus.STOPPED;
-                    } else {
-                        opModeName = opModeManager.getActiveOpMode().getName();
-                        opModeStatus = opModeManager.getActiveOpMode().getOpModeStatus();
-                    }
-
-                    send(new ReceiveRobotStatus(
-                        new RobotStatus(core.enabled, true, opModeName, opModeStatus, "", "", 12.0)
-                    ));
+                    send(new ReceiveRobotStatus(getRobotStatus()));
+                    break;
+                }
+                case SET_CURRENT_ENABLED: {
+                    currentEnabled = ((SetCurrentEnabled) msg).isCurrentEnabled();
+                    send(new ReceiveRobotStatus(getRobotStatus()));
                     break;
                 }
                 case INIT_OP_MODE: {

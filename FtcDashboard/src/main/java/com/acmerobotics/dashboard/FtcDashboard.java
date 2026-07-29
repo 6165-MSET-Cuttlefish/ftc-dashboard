@@ -28,6 +28,7 @@ import com.acmerobotics.dashboard.message.redux.ReceiveImage;
 import com.acmerobotics.dashboard.message.redux.ReceiveLogcatErrors;
 import com.acmerobotics.dashboard.message.redux.ReceiveOpModeList;
 import com.acmerobotics.dashboard.message.redux.ReceiveRobotStatus;
+import com.acmerobotics.dashboard.message.redux.SetCurrentEnabled;
 import com.acmerobotics.dashboard.message.redux.SetHardwareConfig;
 import com.acmerobotics.dashboard.message.redux.WriteHardwareConfig;
 import com.acmerobotics.dashboard.telemetry.TelemetryPacket;
@@ -87,6 +88,7 @@ import org.firstinspires.ftc.robotcore.external.Func;
 import org.firstinspires.ftc.robotcore.external.Telemetry;
 import org.firstinspires.ftc.robotcore.external.function.Consumer;
 import org.firstinspires.ftc.robotcore.external.function.Continuation;
+import org.firstinspires.ftc.robotcore.external.navigation.CurrentUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.VoltageUnit;
 import org.firstinspires.ftc.robotcore.external.stream.CameraStreamSource;
 import org.firstinspires.ftc.robotcore.internal.opmode.OpModeMeta;
@@ -239,6 +241,9 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
     private long lastGamepadTimestamp;
 
     private boolean webServerAttached;
+
+    // toggled by the client; read from the socket threads that build RobotStatus
+    private volatile boolean currentEnabled;
 
     private TextView connectionStatusTextView;
     private LinearLayout parentLayout;
@@ -1065,6 +1070,11 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
                     send(new ReceiveRobotStatus(getRobotStatus()));
                     break;
                 }
+                case SET_CURRENT_ENABLED: {
+                    currentEnabled = ((SetCurrentEnabled) msg).isCurrentEnabled();
+                    send(new ReceiveRobotStatus(getRobotStatus()));
+                    break;
+                }
                 case INIT_OP_MODE: {
                     String opModeName = ((InitOpMode) msg).getOpModeName();
                     opModeManager.initOpMode(opModeName);
@@ -1791,14 +1801,21 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
     private RobotStatus getRobotStatus() {
         if (opModeManager == null) {
             return new RobotStatus(core.enabled, false, "", RobotStatus.OpModeStatus.STOPPED, "",
-                "", -1.0);
+                "", -1.0, -1.0);
         } else {
             return activeOpMode.with(o -> {
                 double batteryVoltage = -1.0;
+                // Polling the current costs an extra Lynx round trip per hub, so only pay for it
+                // while a client is actually showing the reading.
+                double batteryCurrent = currentEnabled ? 0.0 : -1.0;
                 if (o.opMode.hardwareMap != null) {
                     for (LynxModule m : o.opMode.hardwareMap.getAll(LynxModule.class)) {
                         batteryVoltage =
                             Math.max(batteryVoltage, m.getInputVoltage(VoltageUnit.VOLTS));
+
+                        if (currentEnabled) {
+                            batteryCurrent += m.getCurrent(CurrentUnit.AMPS);
+                        }
                     }
                 }
 
@@ -1807,7 +1824,7 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
                     // status is an enum so it's okay to return a copy here.
                     o.status,
                     RobotLog.getGlobalWarningMessage().message, RobotLog.getGlobalErrorMsg(),
-                    batteryVoltage
+                    batteryVoltage, batteryCurrent
                 );
             });
         }

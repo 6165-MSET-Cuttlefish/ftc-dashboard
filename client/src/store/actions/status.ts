@@ -4,6 +4,8 @@ import {
   ReceiveRobotStatusAction,
   RECEIVE_OP_MODE_LIST,
   RECEIVE_ROBOT_STATUS,
+  SET_CURRENT_ENABLED,
+  SetCurrentEnabledAction,
   OpModeInfo,
 } from '@/store/types/status';
 
@@ -19,4 +21,11 @@ export const receiveOpModeList = (
 ): ReceiveOpModeListAction => ({
   type: RECEIVE_OP_MODE_LIST,
   opModeInfoList,
+});
+
+export const setCurrentEnabled = (
+  currentEnabled: boolean,
+): SetCurrentEnabledAction => ({
+  type: SET_CURRENT_ENABLED,
+  currentEnabled,
 });

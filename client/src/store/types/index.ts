@@ -65,6 +65,7 @@ export {
   RECEIVE_ROBOT_STATUS,
   RECEIVE_OP_MODE_LIST,
   GAMEPAD_SUPPORTED_STATUS,
+  SET_CURRENT_ENABLED,
 } from './status';
 export type {
   StatusState,
@@ -72,6 +73,7 @@ export type {
   ReceiveRobotStatusAction,
   ReceiveOpModeListAction,
   GamepadSupportedStatus,
+  SetCurrentEnabledAction,
 } from './status';
 
 export { RECEIVE_TELEMETRY } from './telemetry';
