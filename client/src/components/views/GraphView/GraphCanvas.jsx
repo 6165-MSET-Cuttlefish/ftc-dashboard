@@ -60,6 +60,8 @@ class GraphCanvas extends React.Component {
 
   renderGraph() {
     if (this.props.paused) {
+      // Option changes made while paused are visible without resuming.
+      this.graph.render(this.props.pausedTime);
       this.requestId = 0;
     } else {
       this.setState(() => ({
