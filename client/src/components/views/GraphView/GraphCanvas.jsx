@@ -2,6 +2,7 @@ import React from 'react';
 import PropTypes from 'prop-types';
 
 import Graph from './Graph';
+import GraphTooltip from './GraphTooltip';
 import AutoFitCanvas from '@/components/Canvas/AutoFitCanvas';
 import { isEqual } from 'lodash';
 
@@ -10,13 +11,19 @@ class GraphCanvas extends React.Component {
     super(props);
 
     this.canvasRef = React.createRef();
+    this.containerRef = React.createRef();
 
     this.renderGraph = this.renderGraph.bind(this);
+    this.handleMouseMove = this.handleMouseMove.bind(this);
+    this.handleMouseLeave = this.handleMouseLeave.bind(this);
 
     this.unsubs = []; // unsub functions to be called to cleanup
 
     this.state = {
       graphEmpty: false,
+      hover: null,
+      containerWidth: 0,
+      containerHeight: 0,
     };
   }
 
@@ -58,12 +65,63 @@ class GraphCanvas extends React.Component {
     if (graphIsDirty) this.renderGraph();
   }
 
+  // the animation loop is stopped while paused, so hovering has to redraw itself
+  renderPausedFrame() {
+    if (!this.graph) return;
+
+    this.setState({
+      graphEmpty: !this.graph.render(this.props.pausedTime),
+      hover: this.graph.getHover(),
+    });
+  }
+
+  handleMouseMove(evt) {
+    const canvas = this.canvasRef.current;
+    const container = this.containerRef.current;
+    if (!this.graph || !canvas || !container) return;
+
+    const canvasRect = canvas.getBoundingClientRect();
+    const containerRect = container.getBoundingClientRect();
+
+    this.graph.setCursor({
+      x: evt.clientX - canvasRect.left,
+      y: evt.clientY - canvasRect.top,
+    });
+
+    // the graph reports hover positions in canvas space; the tooltip is
+    // positioned in container space
+    this.canvasOffset = {
+      x: canvasRect.left - containerRect.left,
+      y: canvasRect.top - containerRect.top,
+    };
+
+    this.setState({
+      containerWidth: containerRect.width,
+      containerHeight: containerRect.height,
+    });
+
+    if (this.props.paused) this.renderPausedFrame();
+  }
+
+  handleMouseLeave() {
+    if (!this.graph) return;
+
+    this.graph.setCursor(null);
+
+    if (this.props.paused) {
+      this.renderPausedFrame();
+    } else {
+      this.setState({ hover: null });
+    }
+  }
+
   renderGraph() {
     if (this.props.paused) {
       this.requestId = 0;
     } else {
       this.setState(() => ({
         graphEmpty: !this.graph.render(Date.now()),
+        hover: this.graph.getHover(),
       }));
 
       this.requestId = requestAnimationFrame(this.renderGraph);
@@ -71,10 +129,17 @@ class GraphCanvas extends React.Component {
   }
 
   render() {
+    const { hover } = this.state;
+    const offset = this.canvasOffset ?? { x: 0, y: 0 };
+
     return (
-      <div className="flex-center h-full">
+      <div className="flex-center relative h-full" ref={this.containerRef}>
         <div
-          className={`${this.state.graphEmpty ? 'hidden' : ''} h-full w-full`}
+          className={`${
+            this.state.graphEmpty ? 'hidden' : ''
+          } h-full w-full cursor-crosshair`}
+          onMouseMove={this.handleMouseMove}
+          onMouseLeave={this.handleMouseLeave}
         >
           <AutoFitCanvas
             ref={this.canvasRef}
@@ -84,6 +149,17 @@ class GraphCanvas extends React.Component {
             }}
           />
         </div>
+        {hover && (
+          <GraphTooltip
+            hover={{
+              ...hover,
+              cursorX: hover.cursorX + offset.x,
+              cursorY: hover.cursorY + offset.y,
+            }}
+            width={this.state.containerWidth}
+            height={this.state.containerHeight}
+          />
+        )}
         <div className="flex-center pointer-events-none absolute top-0 left-0 h-full w-full">
           {this.state.graphEmpty && (
             <p className="text-center">No content to graph</p>

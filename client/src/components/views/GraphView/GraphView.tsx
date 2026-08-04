@@ -328,6 +328,13 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
                     textColor: isDarkMode
                       ? colors.slate[100]
                       : colors.gray[900],
+                    crosshairColor: isDarkMode
+                      ? colors.slate[300]
+                      : colors.gray[500],
+                    // matches the BaseView background (bg-white / dark:bg-slate-900)
+                    backgroundColor: isDarkMode
+                      ? colors.slate[900]
+                      : 'rgb(255, 255, 255)',
                   }}
                   paused={this.state.userPaused || this.state.opmodePaused}
                   pausedTime={this.state.pausedTime}
