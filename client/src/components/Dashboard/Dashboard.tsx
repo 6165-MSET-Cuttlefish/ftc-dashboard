@@ -1,9 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 
 import LayoutPreset, { LayoutPresetType } from '@/enums/LayoutPreset';
 import { saveLayoutPreset, getLayoutPreset } from '@/store/actions/settings';
+import { setHardwareConfig } from '@/store/actions/hardwareconfig';
 import { RootState } from '@/store/reducers';
+import OpModeStatus from '@/enums/OpModeStatus';
+import { STOP_OP_MODE_TAG } from '@/store/types/opmode';
 
 import { BaseViewIconButton } from '@/components/views/BaseView';
 import { ReactComponent as ConnectedIcon } from '@/assets/icons/connected.svg';
@@ -21,15 +24,46 @@ export default function Dashboard() {
   const batteryVoltage = useSelector(
     (state: RootState) => state.status.batteryVoltage,
   );
+  const activeOpMode = useSelector(
+    (state: RootState) => state.status.activeOpMode,
+  );
+  const activeOpModeStatus = useSelector(
+    (state: RootState) => state.status.activeOpModeStatus,
+  );
+  const hardwareConfigs = useSelector(
+    (state: RootState) => state.hardwareConfig.hardwareConfigs,
+  );
+  const currentHardwareConfig = useSelector(
+    (state: RootState) => state.hardwareConfig.currentHardwareConfig,
+  );
   const dispatch = useDispatch();
 
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [selectedHardwareConfig, setSelectedHardwareConfig] = useState('');
+  const [configActivatedMessage, setConfigActivatedMessage] = useState<
+    string | null
+  >(null);
+  const configActivatedModalRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     dispatch(getLayoutPreset());
 
     startSocketWatcher(dispatch);
   }, [dispatch]);
+
+  useEffect(() => {
+    setSelectedHardwareConfig(currentHardwareConfig);
+  }, [currentHardwareConfig]);
+
+  useEffect(() => {
+    if (configActivatedMessage !== null) {
+      configActivatedModalRef.current?.focus();
+    }
+  }, [configActivatedMessage]);
+
+  const isOpModeRunning =
+    activeOpModeStatus !== OpModeStatus.STOPPED &&
+    activeOpMode !== STOP_OP_MODE_TAG;
 
   return (
     <div
@@ -39,8 +73,61 @@ export default function Dashboard() {
       <header className="flex items-center justify-between bg-primary-600 px-3 py-1 text-white">
         <h1 className="text-2xl font-medium">FTC Dashboard</h1>
         <div className="flex-center">
+          <span
+            className={`
+              ${
+                selectedHardwareConfig === currentHardwareConfig ||
+                !selectedHardwareConfig
+                  ? 'select-none opacity-0'
+                  : 'select-auto opacity-100'
+              }
+            `}
+          >
+            *
+          </span>
           <select
-            className="mx-2 rounded border-primary-300 bg-primary-100 py-1 text-sm text-black focus:border-primary-100 focus:ring-2 focus:ring-white focus:ring-opacity-40"
+            className="mx-2 w-32 truncate rounded border-primary-300 bg-primary-100 py-1 text-sm text-black focus:border-primary-100 focus:ring-2 focus:ring-white focus:ring-opacity-40"
+            value={selectedHardwareConfig}
+            onChange={(evt) => setSelectedHardwareConfig(evt.target.value)}
+          >
+            {hardwareConfigs.length === 0 ? (
+              <option value="">No configurations available</option>
+            ) : (
+              [
+                <option value="<No Config Set>" key="empty-option">
+                  Select a configuration...
+                </option>,
+                ...hardwareConfigs
+                  .slice()
+                  .sort((a, b) => a.name.localeCompare(b.name))
+                  .map((config) => (
+                    <option key={config.name} value={config.name}>
+                      {config.name} {config.readOnly ? '(Read-Only)' : ''}
+                    </option>
+                  )),
+              ]
+            )}
+          </select>
+          <button
+            className="mx-2 rounded-md border border-primary-300 bg-primary-100 px-3 py-1 text-sm text-black shadow-md transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-primary-100"
+            onClick={() => {
+              dispatch(setHardwareConfig(selectedHardwareConfig));
+              setConfigActivatedMessage('Config Activated!');
+            }}
+            disabled={
+              isOpModeRunning ||
+              !selectedHardwareConfig ||
+              selectedHardwareConfig === '<No Config Set>' ||
+              selectedHardwareConfig === currentHardwareConfig
+            }
+          >
+            {selectedHardwareConfig &&
+            selectedHardwareConfig === currentHardwareConfig
+              ? 'Activated'
+              : 'Activate'}
+          </button>
+          <select
+            className="mx-2 w-32 truncate rounded border-primary-300 bg-primary-100 py-1 text-sm text-black focus:border-primary-100 focus:ring-2 focus:ring-white focus:ring-opacity-40"
             value={layoutPreset as LayoutPresetType}
             onChange={(evt) =>
               dispatch(saveLayoutPreset(evt.target.value as LayoutPresetType))
@@ -110,6 +197,30 @@ export default function Dashboard() {
         isOpen={isSettingsModalOpen}
         onClose={() => setIsSettingsModalOpen(false)}
       />
+      {configActivatedMessage !== null && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          tabIndex={-1}
+          ref={configActivatedModalRef}
+          onKeyDown={(evt) => {
+            if (evt.key === 'Enter' || evt.key === 'Escape') {
+              setConfigActivatedMessage(null);
+            }
+          }}
+        >
+          <div className="w-full max-w-md rounded bg-white p-4 text-black shadow-lg dark:bg-slate-800 dark:text-white">
+            <p className="mb-3 whitespace-pre-wrap text-sm">
+              {configActivatedMessage}
+            </p>
+            <button
+              className="w-full rounded-md border border-blue-300 bg-blue-200 py-1 px-3 text-sm shadow-md transition-colors dark:border-transparent dark:bg-blue-600 dark:text-blue-50 dark:highlight-white/30 dark:hover:border-blue-400/80 dark:focus:bg-blue-700"
+              onClick={() => setConfigActivatedMessage(null)}
+            >
+              OK
+            </button>
+          </div>
+        </div>
+      )}
       {/* Insert a headless-ui portal so the .set-theme-x styles apply to the headless ui dialogs. */}
       {/* They are rendered as siblings to the root by default, outside of our scope */}
       <div id="headlessui-portal-root">
