@@ -82,7 +82,6 @@ import org.firstinspires.ftc.ftccommon.external.OnCreateMenu;
 import org.firstinspires.ftc.ftccommon.external.OnDestroy;
 import org.firstinspires.ftc.ftccommon.external.WebHandlerRegistrar;
 import org.firstinspires.ftc.ftccommon.internal.FtcRobotControllerWatchdogService;
-import org.firstinspires.ftc.robotcore.external.Func;
 import org.firstinspires.ftc.robotcore.external.Telemetry;
 import org.firstinspires.ftc.robotcore.external.function.Consumer;
 import org.firstinspires.ftc.robotcore.external.function.Continuation;
@@ -100,7 +99,7 @@ import org.xmlpull.v1.XmlPullParserFactory;
 import org.xmlpull.v1.XmlSerializer;
 
 /** Main class for interacting with the instance. */
-public class FtcDashboard implements OpModeManagerImpl.Notifications {
+public class FtcDashboard implements OpModeManagerImpl.Notifications, DashboardTelemetry.Host {
     private static final String TAG = "FtcDashboard";
 
     private static final int DEFAULT_IMAGE_QUALITY = 50; // 0-100
@@ -210,7 +209,7 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
     private final List<MenuItem> enableMenuItems;
     private final List<MenuItem> disableMenuItems;
 
-    private Telemetry telemetry = new TelemetryAdapter();
+    private final DashboardTelemetry telemetry = new DashboardTelemetry(this);
 
     private ExecutorService cameraStreamExecutor;
     private int imageQuality = DEFAULT_IMAGE_QUALITY;
@@ -517,188 +516,6 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
 
         public void stop() {
             running = false;
-        }
-    }
-
-    /**
-     * Adapter to use dashboard telemetry like normal SDK telemetry. Note that this doesn't support
-     * all of the operations yet.
-     */
-    private class TelemetryAdapter implements Telemetry {
-        private TelemetryPacket currentPacket;
-        private LogAdapter log;
-
-        public TelemetryAdapter() {
-            currentPacket = new TelemetryPacket();
-            log = new LogAdapter(currentPacket);
-        }
-
-        @Override
-        public Item addData(String caption, String format, Object... args) {
-            return addData(caption, String.format(format, args));
-        }
-
-        @Override
-        public Item addData(String caption, Object value) {
-            currentPacket.put(caption, value);
-            return null;
-        }
-
-        @Override
-        public <T> Item addData(String caption, Func<T> valueProducer) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public <T> Item addData(String caption, String format, Func<T> valueProducer) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public boolean removeItem(Item item) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public void clear() {
-            clearTelemetry();
-
-            currentPacket = new TelemetryPacket();
-            log = new LogAdapter(currentPacket);
-        }
-
-        @Override
-        public void clearAll() {
-            clear();
-        }
-
-        @Override
-        public Object addAction(Runnable action) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public boolean removeAction(Object token) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public void speak(String text) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public void speak(String text, String languageCode, String countryCode) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public boolean update() {
-            sendTelemetryPacket(currentPacket);
-
-            currentPacket = new TelemetryPacket();
-            log = new LogAdapter(currentPacket);
-
-            return true;
-        }
-
-        @Override
-        public Line addLine() {
-            return null;
-        }
-
-        @Override
-        public Line addLine(String lineCaption) {
-            currentPacket.addLine(lineCaption);
-            return null;
-        }
-
-        @Override
-        public boolean removeLine(Line line) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public boolean isAutoClear() {
-            return false;
-        }
-
-        @Override
-        public void setAutoClear(boolean autoClear) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public int getMsTransmissionInterval() {
-            return getTelemetryTransmissionInterval();
-        }
-
-        @Override
-        public void setMsTransmissionInterval(int msTransmissionInterval) {
-            setTelemetryTransmissionInterval(msTransmissionInterval);
-        }
-
-        @Override
-        public String getItemSeparator() {
-            return null;
-        }
-
-        @Override
-        public void setItemSeparator(String itemSeparator) {}
-
-        @Override
-        public String getCaptionValueSeparator() {
-            return null;
-        }
-
-        @Override
-        public void setCaptionValueSeparator(String captionValueSeparator) {}
-
-        @Override
-        public void setDisplayFormat(DisplayFormat displayFormat) {}
-
-        @Override
-        public Log log() {
-            return log;
-        }
-    }
-
-    private static class LogAdapter implements Telemetry.Log {
-        private TelemetryPacket telemetryPacket;
-
-        private LogAdapter(TelemetryPacket packet) {
-            telemetryPacket = packet;
-        }
-
-        @Override
-        public int getCapacity() {
-            return 0;
-        }
-
-        @Override
-        public void setCapacity(int capacity) {}
-
-        @Override
-        public DisplayOrder getDisplayOrder() {
-            return DisplayOrder.OLDEST_FIRST;
-        }
-
-        @Override
-        public void setDisplayOrder(DisplayOrder displayOrder) {}
-
-        @Override
-        public void add(String entry) {
-            telemetryPacket.addLine(entry);
-        }
-
-        @Override
-        public void add(String format, Object... args) {
-            telemetryPacket.addLine(String.format(format, args));
-        }
-
-        @Override
-        public void clear() {
-            telemetryPacket.clearLines();
         }
     }
 
@@ -1932,6 +1749,9 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
 
     @Override
     public void onOpModePreInit(OpMode opMode) {
+        // Otherwise a display format set by one op mode leaks into the next.
+        telemetry.reset();
+
         activeOpMode.with(
                 o -> {
                     o.opMode = opMode;

@@ -26,7 +26,7 @@ public class DashboardCore {
     /*
      * Telemetry packets are batched for transmission and sent at this interval.
      */
-    private static final int DEFAULT_TELEMETRY_TRANSMISSION_INTERVAL = 100; // ms
+    public static final int DEFAULT_TELEMETRY_TRANSMISSION_INTERVAL = 100; // ms
 
     public boolean enabled;
 

@@ -16,6 +16,69 @@ packet.put("x", 3.7);
 packet.put("status", "alive");
 ```
 
+### Ordering
+
+Telemetry is displayed in the order it was added, matching the Driver Station. `addLine()` adds a
+line in place, between the items added before and after it.
+
+```java
+packet.put("x", 3.7);
+packet.addLine("--- drive ---");
+packet.put("status", "alive");
+```
+
+```
+x: 3.7
+--- drive ---
+status: alive
+```
+
+Unlike the SDK's `Telemetry.addData()`, which appends a new line every call, `put()` overwrites a
+key that is already present, leaving it in the position it was first given.
+
+`addLogEntry()` adds to the packet's log, which is displayed below all telemetry items. Entries
+added through the `Telemetry` interface below, with `telemetry.log().add(...)`, behave like the
+SDK's: they persist across updates, hold nine entries and are retransmitted with every packet.
+
+The display is rebuilt from each transmission rather than accumulated, so telemetry that stops
+being sent stops being shown.
+
+### Display format
+
+Packets render a subset of HTML, as the dashboard always has.
+
+```java
+packet.setDisplayFormat(TelemetryPacket.DisplayFormat.HTML); // the default
+packet.put("status", "<font color='green'><b>alive</b></font>");
+```
+
+The `Telemetry` interface below defaults to `DisplayFormat.CLASSIC` instead, matching the Driver
+Station: markup is displayed verbatim, so `<b>` and `a < b` both show up as written. Opt in with
+`setDisplayFormat()`, as you would to get rich text on the Driver Station. The setting carries over
+to later packets until the next op mode.
+
+```java
+telemetry.setDisplayFormat(Telemetry.DisplayFormat.HTML);
+```
+
+`DisplayFormat.MONOSPACE` keeps text verbatim in a monospace font, which is useful for aligning
+columns with spaces.
+
+The format belongs to the packet rather than the view, so telemetry sent from several places at
+once is each rendered the way its sender asked for. The Telemetry View's menu overrides the format
+for every line without redeploying the op mode, which helps when reading the markup behind a line
+that renders oddly. It starts on Auto, follows each packet, and names the active override next to
+the heading. The override is not remembered across reloads.
+
+The supported tags are the ones AOSP's `Html.fromHtml` handles, which is what the Driver Station
+uses: `b`, `strong`, `i`, `em`, `cite`, `dfn`, `u`, `s`, `strike`, `del`, `sup`, `sub`, `big`,
+`small`, `tt`, `br`, `p`, `div`, `blockquote`, `ul`, `li`, `h1`-`h6`, `font` (`color` and `face`)
+and `span` (`color`, `background-color`, `text-decoration: line-through`, and `text-align` on block
+elements). Color names resolve to the values Android uses, so `green` is the same brightness here
+as on the Driver Station. Any other tag is dropped and its text kept. Because telemetry is rendered
+in a browser rather than a text view, tags that can execute code or load resources, such as
+`script`, `iframe` and `img`, are discarded along with all event handler attributes.
+
 The accessor `fieldOverlay()` returns a `Canvas` that records a sequence of drawing operations that show up in the Field View.
 
 ```java
@@ -33,7 +96,7 @@ FtcDashboard dashboard = FtcDashboard.getInstance();
 dashboard.sendTelemetryPacket(packet);
 ```
 
-For convenience, the dashboard offers a restricted implementation of `Telemetry`.
+For convenience, the dashboard offers an implementation of `Telemetry`.
 
 ```java
 FtcDashboard dashboard = FtcDashboard.getInstance();
@@ -43,7 +106,13 @@ dashboardTelemetry.addData("x", 3.7);
 dashboardTelemetry.update();
 ```
 
-Each call to `update()` sends a packet with the data since the last call. Be careful: this indirection can mask the presence of multiple `sendTelemetryPacket()` calls in a single loop iteration.
+It follows the SDK's semantics: the `Item` returned by `addData()` stays addressable, `Func` values
+are re-evaluated on every update, retained items survive a `clear()`, `setAutoClear(false)`
+accumulates telemetry across updates, and `Double` and `Float` values are rounded as the Driver
+Station rounds them (`setNumDecimalPlaces()` adjusts this). The exception is `speak()`, which does
+nothing here because the dashboard has no speaker.
+
+Each call to `update()` composes a packet from the telemetry currently set and sends it. Be careful: this indirection can mask the presence of multiple `sendTelemetryPacket()` calls in a single loop iteration.
 
 A common idiom combines DS and dashboard telemetry together.
 
