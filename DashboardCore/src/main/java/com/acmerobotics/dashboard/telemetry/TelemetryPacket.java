@@ -2,21 +2,60 @@ package com.acmerobotics.dashboard.telemetry;
 
 import com.acmerobotics.dashboard.canvas.Canvas;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.SortedMap;
 import java.util.TreeMap;
 
-/**
- * Container for telemetry information. This class can be extended to support additional, custom
- * telemetry data.
- */
+/** Items and lines share one ordered list; log entries render below, as on the Driver Station. */
 public class TelemetryPacket {
+    /** Mirrors the SDK's Telemetry.DisplayFormat. */
+    public enum DisplayFormat {
+        CLASSIC,
+        MONOSPACE,
+        HTML
+    }
+
+    /** A displayed entry. A null caption is a bare line, rendered without a separator. */
+    public static final class Item {
+        private final String caption;
+        private String value;
+
+        Item(String caption, String value) {
+            this.caption = caption;
+            this.value = value;
+        }
+
+        public String getCaption() {
+            return caption;
+        }
+
+        public String getValue() {
+            return value;
+        }
+
+        public void setValue(String value) {
+            this.value = value == null ? "null" : value;
+        }
+
+        public void appendValue(String suffix) {
+            value += suffix;
+        }
+    }
+
     private long timestamp;
     private SortedMap<String, String> data;
     private List<String> log;
     private Canvas field;
     private Canvas fieldOverlay;
+    private List<Item> items;
+    private DisplayFormat displayFormat;
+    private String captionValueSeparator;
+    private boolean telemetryFrame;
+
+    private static final String DEFAULT_CAPTION_VALUE_SEPARATOR = ": ";
 
     private static final Canvas DEFAULT_FIELD = new Canvas();
 
@@ -27,10 +66,12 @@ public class TelemetryPacket {
         DEFAULT_FIELD.drawGrid(0, 0, 144, 144, 7, 7);
     }
 
-    /** Creates a new telemetry packet. */
     public TelemetryPacket(boolean drawDefaultField) {
         data = new TreeMap<>();
         log = new ArrayList<>();
+        items = new ArrayList<>();
+        displayFormat = DisplayFormat.HTML;
+        captionValueSeparator = DEFAULT_CAPTION_VALUE_SEPARATOR;
         field = new Canvas();
         fieldOverlay = new Canvas();
 
@@ -43,51 +84,116 @@ public class TelemetryPacket {
         this(true);
     }
 
-    /**
-     * Stores a single key-value pair.
-     *
-     * @param key entry key
-     * @param value entry value
-     */
+    /** Stores a key-value pair; unlike the SDK's addData(), an existing key is overwritten. */
     public void put(String key, Object value) {
-        data.put(key, value == null ? "null" : value.toString());
+        String caption = captionOf(key);
+        String stringValue = value == null ? "null" : value.toString();
+
+        data.put(caption, stringValue);
+
+        for (Item item : items) {
+            if (Objects.equals(item.getCaption(), caption)) {
+                item.setValue(stringValue);
+                return;
+            }
+        }
+
+        items.add(new Item(caption, stringValue));
     }
 
-    /**
-     * Stores all entries of the provided map.
-     *
-     * @param map entries to store
-     */
+    /** Stores a key-value pair for the graph and logging views without displaying it. */
+    public void putData(String key, Object value) {
+        data.put(captionOf(key), value == null ? "null" : value.toString());
+    }
+
+    // A null caption means "bare line", so a null key renders as the SDK would format it.
+    private static String captionOf(String key) {
+        return key == null ? "null" : key;
+    }
+
     public void putAll(Map<String, Object> map) {
         for (Map.Entry<String, Object> entry : map.entrySet()) {
             put(entry.getKey(), entry.getValue());
         }
     }
 
-    /**
-     * Adds a line to the telemetry log.
-     *
-     * @param line text to append
-     */
+    /** Adds a line in place, between the items added before and after it. */
     public void addLine(String line) {
-        log.add(line);
+        addItem(line);
     }
 
-    /** Clears the telemetry log. */
+    /** Like addLine, but returns the line so values can be appended to it. */
+    public Item addItem(String value) {
+        Item item = new Item(null, value == null ? "" : value);
+        items.add(item);
+        return item;
+    }
+
+    /** Clears bare lines only; keyed items and log entries are left alone. */
     public void clearLines() {
+        Iterator<Item> it = items.iterator();
+        while (it.hasNext()) {
+            if (it.next().getCaption() == null) {
+                it.remove();
+            }
+        }
+    }
+
+    public void addLogEntry(String entry) {
+        log.add(entry);
+    }
+
+    public void clearLog() {
         log.clear();
     }
 
-    /**
-     * Adds and returns the current timestamp to the packet. This is called automatically when the
-     * packet is sent (and any previous timestamp will be overwritten).
-     */
+    /** Direct packets default to HTML; FtcDashboard.getTelemetry() defaults to CLASSIC. */
+    public void setDisplayFormat(DisplayFormat displayFormat) {
+        this.displayFormat = displayFormat == null ? DisplayFormat.HTML : displayFormat;
+    }
+
+    public DisplayFormat getDisplayFormat() {
+        return displayFormat;
+    }
+
+    /** Lets an empty packet clear the display; a pruned drawing-only packet looks the same. */
+    public void markTelemetryFrame() {
+        telemetryFrame = true;
+    }
+
+    public boolean isTelemetryFrame() {
+        return telemetryFrame;
+    }
+
+    public void setCaptionValueSeparator(String captionValueSeparator) {
+        this.captionValueSeparator =
+                captionValueSeparator == null
+                        ? DEFAULT_CAPTION_VALUE_SEPARATOR
+                        : captionValueSeparator;
+    }
+
+    public String getCaptionValueSeparator() {
+        return captionValueSeparator;
+    }
+
+    /** Called automatically when the packet is sent; overwrites any previous timestamp. */
     public long addTimestamp() {
         timestamp = System.currentTimeMillis();
         return timestamp;
     }
 
-    /** Returns the field overlay canvas. */
+    public List<Item> getItems() {
+        return items;
+    }
+
+    public SortedMap<String, String> getData() {
+        return data;
+    }
+
+    public List<String> getLog() {
+        return log;
+    }
+
     public Canvas fieldOverlay() {
         return fieldOverlay;
     }
