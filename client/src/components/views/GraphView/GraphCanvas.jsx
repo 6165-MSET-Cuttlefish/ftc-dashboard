@@ -5,6 +5,16 @@ import Graph from './Graph';
 import AutoFitCanvas from '@/components/Canvas/AutoFitCanvas';
 import { isEqual } from 'lodash';
 
+// how close (in CSS pixels) a click must land to a marker to remove it
+const MARKER_HIT_RADIUS = 6;
+
+// approximate size of the label input, in CSS pixels; only used to keep it
+// from hanging off the edge of the canvas
+const DRAFT_WIDTH = 128;
+const DRAFT_HEIGHT = 26;
+
+const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+
 class GraphCanvas extends React.Component {
   constructor(props) {
     super(props);
@@ -12,11 +22,15 @@ class GraphCanvas extends React.Component {
     this.canvasRef = React.createRef();
 
     this.renderGraph = this.renderGraph.bind(this);
+    this.handleClick = this.handleClick.bind(this);
+    this.handleDraftKeydown = this.handleDraftKeydown.bind(this);
 
     this.unsubs = []; // unsub functions to be called to cleanup
 
     this.state = {
       graphEmpty: false,
+      // the marker awaiting a label from the user, if any
+      markerDraft: null,
     };
   }
 
@@ -50,12 +64,75 @@ class GraphCanvas extends React.Component {
     }
 
     if (!this.props.paused && !isEqual(this.props.data, prevProps.data)) {
-      this.graph.add(Date.now(), this.props.data);
+      this.graph.add(Date.now(), this.props.data, this.props.markers);
     }
 
     if (!this.props.paused && !this.requestId) graphIsDirty = true;
 
     if (graphIsDirty) this.renderGraph();
+  }
+
+  // the animation loop is stopped while paused, so marker edits have to be
+  // drawn by hand to show up
+  redrawIfPaused() {
+    if (this.props.paused) this.graph.render(this.props.pausedTime);
+  }
+
+  handleClick(evt) {
+    if (!this.graph) return;
+
+    const canvasRect = this.canvasRef.current.getBoundingClientRect();
+    const x = evt.clientX - canvasRect.left;
+    const y = evt.clientY - canvasRect.top;
+
+    if (!this.graph.isInPlot(x, y)) return;
+
+    const markerIndex = this.graph.markerIndexAt(x, MARKER_HIT_RADIUS);
+    if (markerIndex !== -1) {
+      this.graph.removeMarker(markerIndex);
+      this.setState({ markerDraft: null });
+      this.redrawIfPaused();
+      return;
+    }
+
+    const t = this.graph.timeAtX(x);
+    if (isNaN(t)) return;
+
+    // the draft input is positioned against the clicked element, and kept
+    // inside of it so that it stays on screen near the edges
+    const hostRect = evt.currentTarget.getBoundingClientRect();
+    this.setState({
+      markerDraft: {
+        x: clamp(
+          evt.clientX - hostRect.left,
+          0,
+          Math.max(0, hostRect.width - DRAFT_WIDTH),
+        ),
+        y: clamp(
+          evt.clientY - hostRect.top,
+          0,
+          Math.max(0, hostRect.height - DRAFT_HEIGHT),
+        ),
+        t,
+        label: '',
+      },
+    });
+  }
+
+  handleDraftKeydown(evt) {
+    // the enclosing view treats space and k as play/pause shortcuts
+    evt.stopPropagation();
+
+    if (!this.state.markerDraft) return;
+
+    if (evt.key === 'Enter') {
+      const { t, label } = this.state.markerDraft;
+      this.graph.addMarker(t, label.trim());
+      this.setState({ markerDraft: null });
+      this.redrawIfPaused();
+    } else if (evt.key === 'Escape') {
+      this.setState({ markerDraft: null });
+    }
   }
 
   renderGraph() {
@@ -71,10 +148,15 @@ class GraphCanvas extends React.Component {
   }
 
   render() {
+    const { markerDraft } = this.state;
+
     return (
       <div className="flex-center h-full">
         <div
-          className={`${this.state.graphEmpty ? 'hidden' : ''} h-full w-full`}
+          className={`${
+            this.state.graphEmpty ? 'hidden' : ''
+          } relative h-full w-full cursor-crosshair`}
+          onClick={this.handleClick}
         >
           <AutoFitCanvas
             ref={this.canvasRef}
@@ -83,6 +165,26 @@ class GraphCanvas extends React.Component {
                 this.graph.render(this.props.pausedTime);
             }}
           />
+          {markerDraft && (
+            <input
+              // remount on a new spot so that autoFocus fires again
+              key={`${markerDraft.x},${markerDraft.y}`}
+              autoFocus
+              className="absolute z-10 w-32 cursor-text rounded border border-gray-300 bg-white px-1 text-sm text-gray-900 shadow dark:border-slate-500 dark:bg-slate-700 dark:text-slate-100"
+              style={{ left: markerDraft.x, top: markerDraft.y }}
+              value={markerDraft.label}
+              placeholder="Marker label"
+              onChange={(evt) =>
+                this.setState({
+                  markerDraft: { ...markerDraft, label: evt.target.value },
+                })
+              }
+              onKeyDown={this.handleDraftKeydown}
+              onBlur={() => this.setState({ markerDraft: null })}
+              // the enclosing div turns clicks into new markers
+              onClick={(evt) => evt.stopPropagation()}
+            />
+          )}
         </div>
         <div className="flex-center pointer-events-none absolute top-0 left-0 h-full w-full">
           {this.state.graphEmpty && (
@@ -94,8 +196,13 @@ class GraphCanvas extends React.Component {
   }
 }
 
+GraphCanvas.defaultProps = {
+  markers: [],
+};
+
 GraphCanvas.propTypes = {
   data: PropTypes.arrayOf(PropTypes.any).isRequired,
+  markers: PropTypes.arrayOf(PropTypes.any),
   options: PropTypes.object.isRequired,
   paused: PropTypes.bool.isRequired,
   pausedTime: PropTypes.number.isRequired,

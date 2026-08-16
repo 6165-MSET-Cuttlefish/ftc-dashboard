@@ -15,6 +15,7 @@ public class TelemetryPacket {
     private long timestamp;
     private SortedMap<String, String> data;
     private List<String> log;
+    private List<String> markers;
     private Canvas field;
     private Canvas fieldOverlay;
 
@@ -33,6 +34,7 @@ public class TelemetryPacket {
     public TelemetryPacket(boolean drawDefaultField) {
         data = new TreeMap<>();
         log = new ArrayList<>();
+        markers = new ArrayList<>();
         field = new Canvas();
         fieldOverlay = new Canvas();
 
@@ -80,6 +82,23 @@ public class TelemetryPacket {
      */
     public void clearLines() {
         log.clear();
+    }
+
+    /**
+     * Marks the instant of this packet with a label. Markers appear as labeled vertical lines in
+     * the Graph View.
+     *
+     * @param label
+     */
+    public void addMarker(String label) {
+        markers.add(label == null ? "" : label);
+    }
+
+    /**
+     * Clears the markers in this packet.
+     */
+    public void clearMarkers() {
+        markers.clear();
     }
 
     /**
