@@ -9,6 +9,13 @@ interface UseKeyboardControlsProps {
   updateGamepadState: (gamepadNum: 1 | 2, newState: Partial<GamepadState>) => void;
 }
 
+const isEditableTarget = (target: EventTarget | null) =>
+  target instanceof HTMLElement &&
+  (target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement ||
+    target.isContentEditable);
+
 export const useKeyboardControls = ({
   enabled,
   mapping,
@@ -26,6 +33,8 @@ export const useKeyboardControls = ({
     const pressedKeys = new Set<string>();
     
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (isEditableTarget(event.target)) return;
+
       // Prevent default browser behavior for all mapped gamepad keys.
       // This ensures keys like Space, Arrow keys, etc. don't trigger browser actions
       // (e.g., page scrolling) while controlling the gamepad.
