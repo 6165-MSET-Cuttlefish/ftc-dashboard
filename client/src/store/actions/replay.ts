@@ -7,7 +7,9 @@ import {
 
 export const setReplayOverlay = (
   overlay: DrawOp[],
+  data?: { [key: string]: string },
 ): SetReplayOverlayAction => ({
   type: SET_REPLAY_OVERLAY,
   overlay,
+  data,
 });

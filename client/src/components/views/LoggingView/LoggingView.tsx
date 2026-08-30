@@ -19,8 +19,10 @@ import BaseView, {
   BaseViewProps,
   BaseViewHeadingProps,
 } from '@/components/views/BaseView';
+import ReplayBadge from '@/components/views/ReplayBadge';
 import ToolTip from '@/components/ToolTip';
 import CustomVirtualGrid from './CustomVirtualGrid';
+import { formatClock } from '@/store/recording/timeFormat';
 import { DateToHHMMSS } from './DateFormatting';
 
 import useDelayedTooltip from '@/hooks/useDelayedTooltip';
@@ -34,6 +36,8 @@ type LoggingViewProps = BaseViewProps & BaseViewHeadingProps;
 
 export type TelemetryStoreItem = {
   timestamp: number;
+  /** Offset inside the recording, on replayed rows only. See rowTime. */
+  recordedMs?: number;
   data: unknown[];
   log: string[];
 };
@@ -59,6 +63,17 @@ type TelemetryStoreAction =
       payload: { index: number; value: boolean };
     };
 
+/**
+ * A replayed `timestamp` is a browser-epoch value scaled by playback speed, for
+ * Graph.ts, so at 4x it reports the match as a quarter of its length.
+ * `recordedMs` is the frame's true offset inside the recording.
+ */
+function rowTime(item: { timestamp: number; recordedMs?: number }): string {
+  return item.recordedMs === undefined
+    ? DateToHHMMSS(new Date(item.timestamp))
+    : formatClock(item.recordedMs);
+}
+
 const telemetryStoreReducer = (
   state: TelemetryStoreState,
   action: TelemetryStoreAction,
@@ -70,9 +85,11 @@ const telemetryStoreReducer = (
     case TelemetryStoreCommand.APPEND: {
       const { store, keys, raw, keysShowing } = state;
       const { timestamp, data, log } = action.payload;
+      const recordedMs = (action.payload as { recordedMs?: number }).recordedMs;
 
       const newTelemetryStoreItem: TelemetryStoreItem = {
         timestamp,
+        recordedMs,
         log,
         data: new Array(keys.length).fill(null),
       };
@@ -87,10 +104,7 @@ const telemetryStoreReducer = (
       }
 
       store.push(newTelemetryStoreItem);
-      raw.push([
-        DateToHHMMSS(new Date(timestamp)),
-        ...newTelemetryStoreItem.data,
-      ]);
+      raw.push([rowTime(newTelemetryStoreItem), ...newTelemetryStoreItem.data]);
 
       return {
         store,
@@ -149,6 +163,12 @@ const LoggingView = ({
   );
 
   const telemetry = useSelector((state: RootState) => state.telemetry);
+  // Narrow selectors: state.playback gets a new identity on every cursor tick.
+  const playbackMode = useSelector((state: RootState) => state.playback.mode);
+  const isReplaying = useSelector(
+    (state: RootState) => state.playback.isPlaying,
+  );
+  const foldToken = useSelector((state: RootState) => state.playback.foldToken);
 
   const [telemetryStore, dispatchTelemetryStore] = useReducer(
     telemetryStoreReducer,
@@ -183,6 +203,17 @@ const LoggingView = ({
   );
 
   useEffect(() => {
+    // Replay drives this view through the same telemetry slice, but the robot's
+    // status stays live truth, and opModeInfoList is empty whenever the dashboard
+    // is disconnected. Without this branch, capturing (and therefore the CSV
+    // download) would never start while reviewing a recording offline.
+    if (playbackMode === 'playback') {
+      // Purely the capture/download gate; clearing is keyed off the epoch below,
+      // so pausing to read a row does not discard what was captured.
+      setIsRecording(isReplaying);
+      return;
+    }
+
     if (opModeInfoList?.length === 0) {
       setIsRecording(false);
     } else if (activeOpMode === STOP_OP_MODE_TAG) {
@@ -200,7 +231,9 @@ const LoggingView = ({
     activeOpMode,
     activeOpModeStatus,
     isRecording,
+    isReplaying,
     opModeInfoList,
+    playbackMode,
     telemetry,
   ]);
 
@@ -221,8 +254,22 @@ const LoggingView = ({
     }
   }, [isRecording, telemetryStore.store.length]);
 
+  // foldToken only, not clearToken: this fires when the playhead moved, where
+  // the rows on screen no longer describe what is shown and a backwards seek
+  // would re-append them. A clear inside the recording is a different event --
+  // see the empty-batch branch below. Ghost mode never clears the sink.
+  useEffect(() => {
+    clearPastTelemetry();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [foldToken]);
+
   useEffect(() => {
     if (telemetry.length === 1 && telemetry[0].timestamp === 0) return;
+
+    // An empty batch is never a reason to discard the capture, replayed or not.
+    // Live it is an ordinary message (telemetry.clear(), op-mode pre-init) that
+    // this panel has always ignored, and the rows belong to the user.
+    if (telemetry.length === 0) return;
 
     telemetry.forEach((e) => {
       dispatchTelemetryStore({
@@ -230,6 +277,7 @@ const LoggingView = ({
         payload: e,
       });
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [telemetry]);
 
   const clearPastTelemetry = () => {
@@ -264,7 +312,7 @@ const LoggingView = ({
     const body = storeCopy
       .map(
         (e) =>
-          `${DateToHHMMSS(new Date(e.timestamp))},${[
+          `${rowTime(e)},${[
             ...e.data,
             ...new Array(telemetryStore.keys.length - e.data.length),
           ].join(',')},"${e.log.join('\n')}"`,
@@ -307,7 +355,10 @@ const LoggingView = ({
   return (
     <BaseView isUnlocked={isUnlocked}>
       <div className="flex-center">
-        <BaseViewHeading isDraggable={isDraggable}>Logging</BaseViewHeading>
+        <BaseViewHeading isDraggable={isDraggable}>
+          Logging
+          {playbackMode === 'playback' && <ReplayBadge source="replacing" />}
+        </BaseViewHeading>
         <div className="mr-3 flex items-center space-x-1">
           <button
             className={`icon-btn h-8 w-8 ${
