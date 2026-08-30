@@ -15,6 +15,8 @@ class GraphCanvas extends React.Component {
 
     this.unsubs = []; // unsub functions to be called to cleanup
 
+    this.lastRenderMs = undefined;
+
     this.state = {
       graphEmpty: false,
     };
@@ -27,6 +29,7 @@ class GraphCanvas extends React.Component {
   componentWillUnmount() {
     if (this.requestId) {
       cancelAnimationFrame(this.requestId);
+      this.requestId = 0;
     }
   }
 
@@ -49,8 +52,38 @@ class GraphCanvas extends React.Component {
       this.graph.reset();
     }
 
-    if (!this.props.paused && !isEqual(this.props.data, prevProps.data)) {
+    // Replay timestamps run on a virtual clock and a seek re-sends history that
+    // predates what is plotted, so this reset must precede the add below.
+    const didReset = prevProps.resetToken !== this.props.resetToken;
+    if (didReset) {
+      this.graph.reset();
+      this.lastRenderMs = undefined;
+    } else if (prevProps.showRecorded && !this.props.showRecorded) {
+      this.graph.dropRecorded();
+      graphIsDirty = true;
+    }
+
+    const dataChanged = !isEqual(this.props.data, prevProps.data);
+
+    if (!this.props.paused && dataChanged) {
       this.graph.add(Date.now(), this.props.data);
+    }
+
+    // With the RAF loop stopped this is the only place a paused plot repaints; a
+    // seek arrives as several commits and only one carries the token. Gated on
+    // replayDriven because `paused` is also the panel's own Pause.
+    if (
+      this.props.replayDriven &&
+      this.props.paused &&
+      (didReset || dataChanged)
+    ) {
+      const now = Date.now();
+      // onResize needs this: pausedTime is nowhere near a scrubbed playhead.
+      this.lastRenderMs = now;
+      this.graph.add(now, this.props.data);
+      this.setState(() => ({
+        graphEmpty: !this.graph.render(now),
+      }));
     }
 
     if (!this.props.paused && !this.requestId) graphIsDirty = true;
@@ -59,6 +92,10 @@ class GraphCanvas extends React.Component {
   }
 
   renderGraph() {
+    // Must stay idempotent: a second chain overwrites the stored id, and unmount
+    // can only cancel the id it can see, so the orphan renders on forever.
+    if (this.requestId) cancelAnimationFrame(this.requestId);
+
     if (this.props.paused) {
       this.requestId = 0;
     } else {
@@ -79,8 +116,9 @@ class GraphCanvas extends React.Component {
           <AutoFitCanvas
             ref={this.canvasRef}
             onResize={() => {
-              if (this.graph && this.props.paused)
-                this.graph.render(this.props.pausedTime);
+              if (this.graph && this.props.paused) {
+                this.graph.render(this.lastRenderMs ?? this.props.pausedTime);
+              }
             }}
           />
         </div>
@@ -95,10 +133,13 @@ class GraphCanvas extends React.Component {
 }
 
 GraphCanvas.propTypes = {
+  showRecorded: PropTypes.bool,
+  replayDriven: PropTypes.bool,
   data: PropTypes.arrayOf(PropTypes.any).isRequired,
   options: PropTypes.object.isRequired,
   paused: PropTypes.bool.isRequired,
   pausedTime: PropTypes.number.isRequired,
+  resetToken: PropTypes.number,
 };
 
 export default GraphCanvas;
