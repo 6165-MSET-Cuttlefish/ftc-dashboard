@@ -29,6 +29,11 @@ test {
     useJUnitPlatform()
 }
 
+tasks.register("runTestServer", JavaExec) {
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = "com.acmerobotics.dashboard.TestServer"
+}
+
 project.afterEvaluate {
     publishing {
         publications {
