@@ -34,12 +34,12 @@ public class ArrayProvider<T> implements ValueProvider<T> {
         } catch (IllegalAccessException e) {
             throw new RuntimeException(e);
         } catch (ArrayIndexOutOfBoundsException ignored) {
+            // Ignore writes after an array shrinks.
         }
     }
 
-
     public static Object getArrayRecursive(Object object, int[] indices)
-        throws ArrayIndexOutOfBoundsException, IllegalAccessException {
+            throws ArrayIndexOutOfBoundsException, IllegalAccessException {
         for (int index : indices) {
             object = Array.get(object, index);
         }

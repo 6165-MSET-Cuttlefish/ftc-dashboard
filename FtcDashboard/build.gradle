@@ -9,6 +9,7 @@ plugins {
 apply plugin: "com.android.library"
 apply plugin: "maven-publish"
 apply plugin: "checkstyle"
+apply plugin: "com.diffplug.spotless"
 apply plugin: "kotlin-android"
 
 android {
@@ -39,6 +40,7 @@ node {
 }
 
 yarn_build.dependsOn yarn_install
+yarn_lint.dependsOn yarn_install
 
 task cleanDashAssets(type: Delete) {
     delete "${android.sourceSets.getByName("main").assets.srcDirs[0]}/dash"
@@ -60,9 +62,17 @@ android.libraryVariants.all { variant ->
 
 // adapted from https://github.com/Genymobile/gnirehtet/blob/master/config/android-checkstyle.gradle
 check.dependsOn "checkstyle"
+check.dependsOn "yarn_lint"
 
 checkstyle {
     toolVersion = checkstyle_version
+}
+
+spotless {
+    java {
+        target "src/*/java/**/*.java"
+        googleJavaFormat(google_java_format_version).aosp()
+    }
 }
 
 task checkstyle(type: Checkstyle) {
@@ -70,7 +80,7 @@ task checkstyle(type: Checkstyle) {
     configFile = rootProject.file("config/checkstyle/checkstyle.xml")
     source = javaSources()
     classpath = files()
-    ignoreFailures = true
+    ignoreFailures = false
 }
 
 // I"d like to replace each() with collectMany() if only I knew how

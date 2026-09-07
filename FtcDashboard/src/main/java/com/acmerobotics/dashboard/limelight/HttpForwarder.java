@@ -1,9 +1,7 @@
 package com.acmerobotics.dashboard.limelight;
 
 import com.qualcomm.robotcore.util.RobotLog;
-
 import fi.iki.elonen.NanoHTTPD;
-
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -13,11 +11,10 @@ import java.util.Map;
 
 /**
  * NanoHTTPD server that forwards HTTP requests to an internal host.
- * <p>
- * When {@code stream} is false the full response body is buffered before replying
- * (suitable for REST/HTML endpoints).  When {@code stream} is true the response is
- * sent as a chunked transfer so the client receives bytes as they arrive (needed for
- * the Limelight MJPEG feed on port 5800).
+ *
+ * <p>When {@code stream} is false the full response body is buffered before replying (suitable for
+ * REST/HTML endpoints). When {@code stream} is true the response is sent as a chunked transfer so
+ * the client receives bytes as they arrive (needed for the Limelight MJPEG feed on port 5800).
  */
 class HttpForwarder extends NanoHTTPD {
     private static final String TAG = "FtcDashboard";
@@ -27,10 +24,12 @@ class HttpForwarder extends NanoHTTPD {
     private final boolean stream;
 
     /**
+     * Creates an HTTP forwarder.
+     *
      * @param listenPort port this server binds to on the Control Hub
      * @param targetHost host to forward to (e.g. {@code "172.29.0.1"})
      * @param targetPort port on the target host
-     * @param stream     if true, use chunked transfer (for MJPEG); if false, buffer the full body
+     * @param stream if true, use chunked transfer (for MJPEG); if false, buffer the full body
      */
     HttpForwarder(int listenPort, String targetHost, int targetPort, boolean stream) {
         super(listenPort);
@@ -51,10 +50,15 @@ class HttpForwarder extends NanoHTTPD {
         try {
             return forwardRequest(session);
         } catch (Exception e) {
-            RobotLog.ww(TAG, "forward %d→%s:%d failed: %s",
-                    getListeningPort(), targetHost, targetPort, e.getMessage());
-            return newFixedLengthResponse(Response.Status.INTERNAL_ERROR,
-                    MIME_PLAINTEXT, "proxy error");
+            RobotLog.ww(
+                    TAG,
+                    "forward %d→%s:%d failed: %s",
+                    getListeningPort(),
+                    targetHost,
+                    targetPort,
+                    e.getMessage());
+            return newFixedLengthResponse(
+                    Response.Status.INTERNAL_ERROR, MIME_PLAINTEXT, "proxy error");
         }
     }
 
@@ -75,7 +79,9 @@ class HttpForwarder extends NanoHTTPD {
             String key = h.getKey();
             if ("host".equalsIgnoreCase(key)
                     || "content-length".equalsIgnoreCase(key)
-                    || "accept-encoding".equalsIgnoreCase(key)) continue;
+                    || "accept-encoding".equalsIgnoreCase(key)) {
+                continue;
+            }
             conn.setRequestProperty(key, h.getValue());
         }
 
@@ -93,10 +99,14 @@ class HttpForwarder extends NanoHTTPD {
         // Read response
         int code = conn.getResponseCode();
         String contentType = conn.getContentType();
-        if (contentType == null) contentType = "application/octet-stream";
+        if (contentType == null) {
+            contentType = "application/octet-stream";
+        }
 
         Response.IStatus status = Response.Status.lookup(code);
-        if (status == null) status = Response.Status.INTERNAL_ERROR;
+        if (status == null) {
+            status = Response.Status.INTERNAL_ERROR;
+        }
 
         Response resp;
         if (stream) {
@@ -107,8 +117,9 @@ class HttpForwarder extends NanoHTTPD {
             // Buffered mode: read everything, close connection, then respond
             byte[] body = readAllBytes(conn);
             conn.disconnect();
-            resp = newFixedLengthResponse(status, contentType,
-                    new ByteArrayInputStream(body), body.length);
+            resp =
+                    newFixedLengthResponse(
+                            status, contentType, new ByteArrayInputStream(body), body.length);
         }
 
         return corsResponse(resp);
@@ -122,16 +133,23 @@ class HttpForwarder extends NanoHTTPD {
 
     private static int bodyLength(IHTTPSession session) {
         String cl = session.getHeaders().get("content-length");
-        if (cl == null) return 0;
-        try { return Integer.parseInt(cl); }
-        catch (NumberFormatException e) { return 0; }
+        if (cl == null) {
+            return 0;
+        }
+        try {
+            return Integer.parseInt(cl);
+        } catch (NumberFormatException e) {
+            return 0;
+        }
     }
 
     private static void readFully(InputStream in, byte[] buf, int len) throws IOException {
         int off = 0;
         while (off < len) {
             int n = in.read(buf, off, len - off);
-            if (n < 0) break;
+            if (n < 0) {
+                break;
+            }
             off += n;
         }
     }
@@ -142,7 +160,9 @@ class HttpForwarder extends NanoHTTPD {
             in = conn.getInputStream();
         } catch (IOException e) {
             in = conn.getErrorStream();
-            if (in == null) return new byte[0];
+            if (in == null) {
+                return new byte[0];
+            }
         }
 
         byte[] buf = new byte[4096];

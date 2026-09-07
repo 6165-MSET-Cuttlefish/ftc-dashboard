@@ -40,13 +40,9 @@ public abstract class TestOpMode {
 
     protected abstract void loop() throws InterruptedException;
 
-    void init_loop() {
-    }
+    void init_loop() {}
 
-    void start() {
-    }
+    void start() {}
 
-    void stop() {
-    }
-
+    void stop() {}
 }

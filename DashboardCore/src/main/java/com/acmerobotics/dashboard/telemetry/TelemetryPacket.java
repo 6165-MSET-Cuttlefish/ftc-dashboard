@@ -27,9 +27,7 @@ public class TelemetryPacket {
         DEFAULT_FIELD.drawGrid(0, 0, 144, 144, 7, 7);
     }
 
-    /**
-     * Creates a new telemetry packet.
-     */
+    /** Creates a new telemetry packet. */
     public TelemetryPacket(boolean drawDefaultField) {
         data = new TreeMap<>();
         log = new ArrayList<>();
@@ -48,8 +46,8 @@ public class TelemetryPacket {
     /**
      * Stores a single key-value pair.
      *
-     * @param key
-     * @param value
+     * @param key entry key
+     * @param value entry value
      */
     public void put(String key, Object value) {
         data.put(key, value == null ? "null" : value.toString());
@@ -58,7 +56,7 @@ public class TelemetryPacket {
     /**
      * Stores all entries of the provided map.
      *
-     * @param map
+     * @param map entries to store
      */
     public void putAll(Map<String, Object> map) {
         for (Map.Entry<String, Object> entry : map.entrySet()) {
@@ -69,15 +67,13 @@ public class TelemetryPacket {
     /**
      * Adds a line to the telemetry log.
      *
-     * @param line
+     * @param line text to append
      */
     public void addLine(String line) {
         log.add(line);
     }
 
-    /**
-     * Clears the telemetry log.
-     */
+    /** Clears the telemetry log. */
     public void clearLines() {
         log.clear();
     }
@@ -91,9 +87,7 @@ public class TelemetryPacket {
         return timestamp;
     }
 
-    /**
-     * Returns the field overlay canvas.
-     */
+    /** Returns the field overlay canvas. */
     public Canvas fieldOverlay() {
         return fieldOverlay;
     }

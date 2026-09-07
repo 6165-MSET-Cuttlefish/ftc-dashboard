@@ -8,7 +8,7 @@ import java.util.List;
 
 public class TestOpModeManager {
     private final List<TestOpMode> testOpModes =
-        Arrays.asList(new TestSineWaveOpMode(), new TestFieldVersatilityOpMode());
+            Arrays.asList(new TestSineWaveOpMode(), new TestFieldVersatilityOpMode());
     private TestOpMode activeOpMode = null;
 
     SendFun sendFun;

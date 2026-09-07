@@ -1,8 +1,8 @@
 package com.acmerobotics.dashboard.message.redux;
 
+import com.acmerobotics.dashboard.OpModeInfo;
 import com.acmerobotics.dashboard.message.Message;
 import com.acmerobotics.dashboard.message.MessageType;
-import com.acmerobotics.dashboard.OpModeInfo;
 import java.util.List;
 
 public class ReceiveOpModeList extends Message {

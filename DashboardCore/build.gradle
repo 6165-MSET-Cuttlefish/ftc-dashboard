@@ -1,6 +1,7 @@
 apply plugin: "java"
 apply plugin: "maven-publish"
 apply plugin: "checkstyle"
+apply plugin: "com.diffplug.spotless"
 apply plugin: "kotlin"
 
 java {
@@ -27,6 +28,16 @@ dependencies {
 
 test {
     useJUnitPlatform()
+}
+
+checkstyle {
+    toolVersion = checkstyle_version
+}
+
+spotless {
+    java {
+        googleJavaFormat(google_java_format_version).aosp()
+    }
 }
 
 tasks.register("runTestServer", JavaExec) {

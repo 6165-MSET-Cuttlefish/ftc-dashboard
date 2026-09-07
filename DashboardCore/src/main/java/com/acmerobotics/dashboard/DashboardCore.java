@@ -21,9 +21,7 @@ import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-/**
- * Main class for interacting with the instance.
- */
+/** Main class for interacting with the instance. */
 public class DashboardCore {
     /*
      * Telemetry packets are batched for transmission and sent at this interval.
@@ -43,18 +41,19 @@ public class DashboardCore {
     private final Mutex<CustomVariable> configBaseline = new Mutex<>(new CustomVariable());
 
     // NOTE: Helps to have this here for testing
-    public static final Gson GSON = new GsonBuilder()
-        .registerTypeAdapter(Message.class, new MessageDeserializer())
-        .registerTypeAdapter(BasicVariable.class, new ConfigVariableSerializer())
-        .registerTypeAdapter(BasicVariable.class, new ConfigVariableDeserializer())
-        .registerTypeAdapter(CustomVariable.class, new ConfigVariableSerializer())
-        .registerTypeAdapter(CustomVariable.class, new ConfigVariableDeserializer())
-        .serializeNulls()
-        .create();
+    public static final Gson GSON =
+            new GsonBuilder()
+                    .registerTypeAdapter(Message.class, new MessageDeserializer())
+                    .registerTypeAdapter(BasicVariable.class, new ConfigVariableSerializer())
+                    .registerTypeAdapter(BasicVariable.class, new ConfigVariableDeserializer())
+                    .registerTypeAdapter(CustomVariable.class, new ConfigVariableSerializer())
+                    .registerTypeAdapter(CustomVariable.class, new ConfigVariableDeserializer())
+                    .serializeNulls()
+                    .create();
 
     /**
-     * Creates a deep copy of a CustomVariable by serializing and deserializing it.
-     * This ensures we capture the current state of all configuration values.
+     * Creates a deep copy of a CustomVariable by serializing and deserializing it. This ensures we
+     * capture the current state of all configuration values.
      */
     private CustomVariable deepCopyConfig(CustomVariable original) {
         String json = GSON.toJson(original);
@@ -105,7 +104,7 @@ public class DashboardCore {
 
     public DashboardCore() {
         telemetryExecutorService =
-            Executors.newSingleThreadExecutor(r -> new Thread(r, "dash telemetry"));
+                Executors.newSingleThreadExecutor(r -> new Thread(r, "dash telemetry"));
         telemetryExecutorService.submit(new TelemetryUpdateRunnable());
     }
 
@@ -113,24 +112,28 @@ public class DashboardCore {
         return new SocketHandler() {
             @Override
             public void onOpen() {
-                configRoot.with(v -> {
-                    sendFun.send(new ReceiveConfig(v));
-                });
-                
-                configBaseline.with(v -> {
-                    sendFun.send(new ReceiveConfigBaseline(v));
-                });
+                configRoot.with(
+                        v -> {
+                            sendFun.send(new ReceiveConfig(v));
+                        });
 
-                sockets.with(l -> {
-                    l.add(sendFun);
-                });
+                configBaseline.with(
+                        v -> {
+                            sendFun.send(new ReceiveConfigBaseline(v));
+                        });
+
+                sockets.with(
+                        l -> {
+                            l.add(sendFun);
+                        });
             }
 
             @Override
             public void onClose() {
-                sockets.with(l -> {
-                    l.remove(sendFun);
-                });
+                sockets.with(
+                        l -> {
+                            l.remove(sendFun);
+                        });
             }
 
             @Override
@@ -141,28 +144,35 @@ public class DashboardCore {
                 }
 
                 switch (message.getType()) {
-                    case GET_CONFIG: {
-                        configRoot.with(v -> {
-                            sendFun.send(new ReceiveConfig(v));
-                        });
-                        return true;
-                    }
-                    case GET_CONFIG_BASELINE: {
-                        configBaseline.with(v -> {
-                            sendFun.send(new ReceiveConfigBaseline(v));
-                        });
-                        return true;
-                    }
-                    case SAVE_CONFIG: {
-                        withConfigRoot(new CustomVariableConsumer() {
-                            @Override
-                            public void accept(CustomVariable configRoot) {
-                                configRoot.update(((SaveConfig) message).getConfigDiff());
-                            }
-                        });
+                    case GET_CONFIG:
+                        {
+                            configRoot.with(
+                                    v -> {
+                                        sendFun.send(new ReceiveConfig(v));
+                                    });
+                            return true;
+                        }
+                    case GET_CONFIG_BASELINE:
+                        {
+                            configBaseline.with(
+                                    v -> {
+                                        sendFun.send(new ReceiveConfigBaseline(v));
+                                    });
+                            return true;
+                        }
+                    case SAVE_CONFIG:
+                        {
+                            withConfigRoot(
+                                    new CustomVariableConsumer() {
+                                        @Override
+                                        public void accept(CustomVariable configRoot) {
+                                            configRoot.update(
+                                                    ((SaveConfig) message).getConfigDiff());
+                                        }
+                                    });
 
-                        return true;
-                    }
+                            return true;
+                        }
                     default:
                         return false;
                 }
@@ -199,9 +209,7 @@ public class DashboardCore {
         }
     }
 
-    /**
-     * Clears telemetry data from all clients.
-     */
+    /** Clears telemetry data from all clients. */
     public void clearTelemetry() {
         synchronized (pendingTelemetry) {
             pendingTelemetry.clear();
@@ -210,9 +218,7 @@ public class DashboardCore {
         }
     }
 
-    /**
-     * Returns the telemetry transmission interval in milliseconds.
-     */
+    /** Returns the telemetry transmission interval in milliseconds. */
     public int getTelemetryTransmissionInterval() {
         return telemetryTransmissionInterval;
     }
@@ -226,22 +232,21 @@ public class DashboardCore {
         telemetryTransmissionInterval = newTransmissionInterval;
     }
 
-    /**
-     * Sends updated configuration data to all instance clients.
-     */
+    /** Sends updated configuration data to all instance clients. */
     public void updateConfig() {
-        configRoot.with(v -> {
-            sendAll(new ReceiveConfig(v));
-        });
+        configRoot.with(
+                v -> {
+                    sendAll(new ReceiveConfig(v));
+                });
     }
 
     /**
      * Executes {@param function} in an exclusive context for thread-safe config tree modification
      * and calls {@link #updateConfig()} to keep clients up to date.
-     * <p>
-     * Do not leak the config tree outside the function.
      *
-     * @param function
+     * <p>Do not leak the config tree outside the function.
+     *
+     * @param function exclusive configuration operation
      */
     public void withConfigRoot(CustomVariableConsumer function) {
         configRoot.with(function::accept);
@@ -253,70 +258,84 @@ public class DashboardCore {
      * Add config variable with custom provider.
      *
      * @param category top-level category
-     * @param name     variable name
+     * @param name variable name
      * @param provider getter/setter for the variable
-     * @param <T>      variable type
+     * @param <T> variable type
      */
     public <T> void addConfigVariable(String category, String name, ValueProvider<T> provider) {
-        configRoot.with(v -> {
-            CustomVariable catVar = (CustomVariable) v.getVariable(category);
-            if (catVar != null) {
-                catVar.putVariable(name, new BasicVariable<>(provider));
-            } else {
-                catVar = new CustomVariable();
-                catVar.putVariable(name, new BasicVariable<>(provider));
-                v.putVariable(category, catVar);
-            }
-            
-            // Update baseline with current configuration state if this is the first time we're adding this variable
-            configBaseline.with(baseline -> {
-                CustomVariable baselineCatVar = (CustomVariable) baseline.getVariable(category);
-                if (baselineCatVar == null || baselineCatVar.getVariable(name) == null) {
-                    // Capture the current state as baseline
-                    CustomVariable currentSnapshot = deepCopyConfig(v);
-                    
-                    // Clear and copy the new baseline
-                    List<String> keysToRemove = new ArrayList<>();
-                    baseline.entrySet().forEach(entry -> keysToRemove.add(entry.getKey()));
-                    keysToRemove.forEach(baseline::removeVariable);
-                    
-                    currentSnapshot.entrySet().forEach(entry -> 
-                        baseline.putVariable(entry.getKey(), entry.getValue()));
-                }
-            });
-            
-            updateConfig();
-        });
+        configRoot.with(
+                v -> {
+                    CustomVariable catVar = (CustomVariable) v.getVariable(category);
+                    if (catVar != null) {
+                        catVar.putVariable(name, new BasicVariable<>(provider));
+                    } else {
+                        catVar = new CustomVariable();
+                        catVar.putVariable(name, new BasicVariable<>(provider));
+                        v.putVariable(category, catVar);
+                    }
+
+                    // Update baseline with current configuration state if this is the first time
+                    // we're adding this variable
+                    configBaseline.with(
+                            baseline -> {
+                                CustomVariable baselineCatVar =
+                                        (CustomVariable) baseline.getVariable(category);
+                                if (baselineCatVar == null
+                                        || baselineCatVar.getVariable(name) == null) {
+                                    // Capture the current state as baseline
+                                    CustomVariable currentSnapshot = deepCopyConfig(v);
+
+                                    // Clear and copy the new baseline
+                                    List<String> keysToRemove = new ArrayList<>();
+                                    baseline.entrySet()
+                                            .forEach(entry -> keysToRemove.add(entry.getKey()));
+                                    keysToRemove.forEach(baseline::removeVariable);
+
+                                    currentSnapshot
+                                            .entrySet()
+                                            .forEach(
+                                                    entry ->
+                                                            baseline.putVariable(
+                                                                    entry.getKey(),
+                                                                    entry.getValue()));
+                                }
+                            });
+
+                    updateConfig();
+                });
     }
 
     /**
      * Remove a config variable.
      *
      * @param category top-level category
-     * @param name     variable name
+     * @param name variable name
      */
     public void removeConfigVariable(String category, String name) {
-        configRoot.with(v -> {
-            CustomVariable catVar = (CustomVariable) v.getVariable(category);
-            catVar.removeVariable(name);
-            if (catVar.size() == 0) {
-                v.removeVariable(category);
-            }
-            updateConfig();
-        });
+        configRoot.with(
+                v -> {
+                    CustomVariable catVar = (CustomVariable) v.getVariable(category);
+                    catVar.removeVariable(name);
+                    if (catVar.size() == 0) {
+                        v.removeVariable(category);
+                    }
+                    updateConfig();
+                });
     }
 
     public void sendAll(Message message) {
-        sockets.with(l -> {
-            for (SendFun sf : l) {
-                sf.send(message);
-            }
-        });
+        sockets.with(
+                l -> {
+                    for (SendFun sf : l) {
+                        sf.send(message);
+                    }
+                });
     }
 
     public int clientCount() {
-        return sockets.with(l -> {
-            return l.size();
-        });
+        return sockets.with(
+                l -> {
+                    return l.size();
+                });
     }
 }

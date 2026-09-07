@@ -4,7 +4,7 @@ import {
   ClearLogcatErrorsAction,
   RECEIVE_LOGCAT_ERRORS,
   CLEAR_LOGCAT_ERRORS,
-} from '../types/logcat';
+} from '@/store/types/logcat';
 
 export const receiveLogcatErrors = (
   errors: LogcatError[],

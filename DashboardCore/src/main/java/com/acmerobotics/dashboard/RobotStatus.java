@@ -1,13 +1,9 @@
 package com.acmerobotics.dashboard;
 
-/**
- * Container for information about the active op mode and its state.
- */
+/** Container for information about the active op mode and its state. */
 public class RobotStatus {
 
-    /**
-     * Status of an op mode.
-     */
+    /** Status of an op mode. */
     public enum OpModeStatus {
         INIT,
         RUNNING,
@@ -22,12 +18,15 @@ public class RobotStatus {
     private String errorMessage;
     private double batteryVoltage;
 
-    /**
-     * Creates a status object with the default values.
-     */
-    public RobotStatus(boolean enabled, boolean available, String activeOpMode,
-                       OpModeStatus activeOpModeStatus, String warningMessage,
-                       String errorMessage, double batteryVoltage) {
+    /** Creates a status object with the default values. */
+    public RobotStatus(
+            boolean enabled,
+            boolean available,
+            String activeOpMode,
+            OpModeStatus activeOpModeStatus,
+            String warningMessage,
+            String errorMessage,
+            double batteryVoltage) {
         this.enabled = enabled;
         this.available = available;
         this.activeOpMode = activeOpMode;

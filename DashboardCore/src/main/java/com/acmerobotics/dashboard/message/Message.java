@@ -1,8 +1,6 @@
 package com.acmerobotics.dashboard.message;
 
-/**
- * Class for representing dashboard messages.
- */
+/** Class for representing dashboard messages. */
 public class Message {
     private MessageType type;
 
@@ -15,9 +13,7 @@ public class Message {
         this.type = type;
     }
 
-    /**
-     * Returns the message type.
-     */
+    /** Returns the message type. */
     public MessageType getType() {
         return type;
     }

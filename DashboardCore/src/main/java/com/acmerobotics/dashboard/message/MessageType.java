@@ -1,5 +1,6 @@
 package com.acmerobotics.dashboard.message;
 
+import com.acmerobotics.dashboard.message.redux.DeleteHardwareConfig;
 import com.acmerobotics.dashboard.message.redux.GetConfig;
 import com.acmerobotics.dashboard.message.redux.GetConfigBaseline;
 import com.acmerobotics.dashboard.message.redux.GetRobotStatus;
@@ -15,14 +16,11 @@ import com.acmerobotics.dashboard.message.redux.ReceiveRobotStatus;
 import com.acmerobotics.dashboard.message.redux.ReceiveTelemetry;
 import com.acmerobotics.dashboard.message.redux.SaveConfig;
 import com.acmerobotics.dashboard.message.redux.SetHardwareConfig;
-import com.acmerobotics.dashboard.message.redux.WriteHardwareConfig;
-import com.acmerobotics.dashboard.message.redux.DeleteHardwareConfig;
 import com.acmerobotics.dashboard.message.redux.StartOpMode;
 import com.acmerobotics.dashboard.message.redux.StopOpMode;
+import com.acmerobotics.dashboard.message.redux.WriteHardwareConfig;
 
-/**
- * Dashboard message types. These values match the corresponding Redux actions in the frontend.
- */
+/** Dashboard message types. These values match the corresponding Redux actions in the frontend. */
 public enum MessageType {
     /* status (also serves as a heartbeat) */
     GET_ROBOT_STATUS(GetRobotStatus.class),

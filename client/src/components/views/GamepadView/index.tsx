@@ -9,7 +9,7 @@ import BaseView, {
   BaseViewHeading,
   BaseViewIcons,
   BaseViewIconButton,
-} from '../BaseView';
+} from '@/components/views/BaseView';
 import { RootState } from '@/store/reducers';
 import { toggleKeyboardMappingEnabled } from '@/store/actions/keyboardMapping';
 import { ReactComponent as GamepadIcon } from '@/assets/icons/gamepad.svg';

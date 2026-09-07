@@ -3,7 +3,6 @@ package com.acmerobotics.dashboard.message.redux;
 import com.acmerobotics.dashboard.HardwareConfig;
 import com.acmerobotics.dashboard.message.Message;
 import com.acmerobotics.dashboard.message.MessageType;
-
 import java.util.List;
 
 public class ReceiveHardwareConfigList extends Message {
@@ -11,9 +10,7 @@ public class ReceiveHardwareConfigList extends Message {
     private String currentHardwareConfig;
 
     public ReceiveHardwareConfigList(
-            List<HardwareConfig> hardwareConfigs,
-            String currentHardwareConfig
-    ) {
+            List<HardwareConfig> hardwareConfigs, String currentHardwareConfig) {
         super(MessageType.RECEIVE_HARDWARE_CONFIG_LIST);
 
         this.hardwareConfigs = hardwareConfigs;

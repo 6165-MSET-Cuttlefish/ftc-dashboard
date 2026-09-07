@@ -6,7 +6,8 @@
 
 buildscript {
     ext.dashboard_version = '0.6.0'
-    ext.checkstyle_version = '8.18'
+    ext.checkstyle_version = '14.1.0'
+    ext.google_java_format_version = '1.36.0'
     ext.kotlin_version = '2.2.20'
 
     repositories {
@@ -18,6 +19,10 @@ buildscript {
         classpath 'com.android.tools.build:gradle:8.7.0'
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
     }
+}
+
+plugins {
+    id "com.diffplug.spotless" version "8.10.2" apply false
 }
 
 // This is now required because aapt2 has to be downloaded from the

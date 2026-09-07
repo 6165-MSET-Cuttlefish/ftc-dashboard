@@ -5,7 +5,7 @@ import {
   ClearLogcatErrorsAction,
   RECEIVE_LOGCAT_ERRORS,
   CLEAR_LOGCAT_ERRORS,
-} from '../types/logcat';
+} from '@/store/types/logcat';
 
 const initialState: LogcatState = {
   errors: [],
@@ -74,18 +74,22 @@ const groupStackTraces = (errors: LogcatError[]): LogcatError[] => {
   return grouped;
 };
 
-const logcatReducer = (state = initialState, action: any): LogcatState => {
+type LogcatAction = ReceiveLogcatErrorsAction | ClearLogcatErrorsAction;
+
+const logcatReducer = (
+  state = initialState,
+  action: LogcatAction,
+): LogcatState => {
   switch (action.type) {
-    case RECEIVE_LOGCAT_ERRORS:
-      // The backend sends 'errors' field, not 'payload'
-      const newErrors = Array.isArray(action.errors) ? action.errors : [];
-      const combinedErrors = [...state.errors, ...newErrors];
+    case RECEIVE_LOGCAT_ERRORS: {
+      const combinedErrors = [...state.errors, ...action.errors];
       const groupedErrors = groupStackTraces(combinedErrors);
 
       return {
         ...state,
         errors: groupedErrors.slice(-100), // Keep only last 100 errors
       };
+    }
     case CLEAR_LOGCAT_ERRORS:
       return {
         ...state,

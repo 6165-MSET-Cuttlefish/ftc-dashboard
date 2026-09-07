@@ -90,6 +90,4 @@ public class SerializationTests {
     void addition() {
         assertSerDeIdentity(ReflectionConfig.createVariableFromClass(NullVariables.class));
     }
-
 }
-
