@@ -27,8 +27,8 @@ export const GamepadSlider: React.FC<GamepadSliderProps> = ({
 
   return (
     <div className={clsx('flex flex-col items-center gap-1', className)}>
-      <div className="flex items-center gap-1.5 w-full">
-        <span className="text-xs font-medium text-gray-700 dark:text-gray-300 min-w-[24px]">
+      <div className="flex w-full items-center gap-1.5">
+        <span className="min-w-[24px] text-xs font-medium text-gray-700 dark:text-gray-300">
           {label}
         </span>
         <input
@@ -40,7 +40,7 @@ export const GamepadSlider: React.FC<GamepadSliderProps> = ({
           onChange={handleSliderChange}
           onDoubleClick={handleDoubleClick}
           className={clsx(
-            'flex-1 h-2 rounded-lg appearance-none cursor-pointer',
+            'h-2 flex-1 cursor-pointer appearance-none rounded-lg',
             'bg-gray-200 dark:bg-gray-700',
             '[&::-webkit-slider-thumb]:appearance-none',
             '[&::-webkit-slider-thumb]:w-4',
@@ -59,16 +59,20 @@ export const GamepadSlider: React.FC<GamepadSliderProps> = ({
             '[&::-moz-range-thumb]:cursor-pointer',
             '[&::-moz-range-thumb]:transition-all',
             '[&::-moz-range-thumb]:hover:bg-blue-600',
-            '[&::-moz-range-thumb]:active:bg-blue-700'
+            '[&::-moz-range-thumb]:active:bg-blue-700',
           )}
-          title={keyBinding ? `Key: ${keyBinding} | Double-click to reset` : 'Double-click to reset'}
+          title={
+            keyBinding
+              ? `Key: ${keyBinding} | Double-click to reset`
+              : 'Double-click to reset'
+          }
         />
-        <span className="text-xs font-medium text-gray-600 dark:text-gray-400 min-w-[36px] text-right">
+        <span className="min-w-[36px] text-right text-xs font-medium text-gray-600 dark:text-gray-400">
           {(value * 100).toFixed(0)}%
         </span>
       </div>
       {keyBinding && (
-        <span className="text-[9px] text-gray-500 dark:text-gray-400 self-start ml-[28px]">
+        <span className="ml-[28px] self-start text-[9px] text-gray-500 dark:text-gray-400">
           {keyBinding}
         </span>
       )}

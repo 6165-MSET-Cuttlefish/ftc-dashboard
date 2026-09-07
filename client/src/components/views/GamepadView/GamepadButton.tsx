@@ -12,20 +12,20 @@ interface GamepadButtonProps {
   onToggle?: () => void;
 }
 
-export const GamepadButton: React.FC<GamepadButtonProps> = ({ 
-  label, 
-  isActive, 
-  value, 
-  className, 
+export const GamepadButton: React.FC<GamepadButtonProps> = ({
+  label,
+  isActive,
+  value,
+  className,
   keyBinding,
   onPress,
   onRelease,
-  onToggle
+  onToggle,
 }) => {
   const [isLocked, setIsLocked] = useState(false);
   const lastActiveRef = useRef(isActive);
   const userInteractingRef = useRef(false);
-  
+
   // Detect external changes (e.g., from keyboard) and clear lock
   useEffect(() => {
     // If isActive changed and we're not in the middle of user interaction, clear lock
@@ -34,10 +34,10 @@ export const GamepadButton: React.FC<GamepadButtonProps> = ({
     }
     lastActiveRef.current = isActive;
   }, [isActive]);
-  
+
   const isAnalog = value !== undefined;
   const displayValue = isAnalog ? (value * 100).toFixed(0) + '%' : label;
-  
+
   const handleMouseDown = (e: React.MouseEvent) => {
     e.preventDefault();
     userInteractingRef.current = true;
@@ -54,7 +54,7 @@ export const GamepadButton: React.FC<GamepadButtonProps> = ({
       onPress();
     }
   };
-  
+
   const handleMouseUp = (e: React.MouseEvent) => {
     e.preventDefault();
     if (!isLocked && onRelease) {
@@ -62,7 +62,7 @@ export const GamepadButton: React.FC<GamepadButtonProps> = ({
     }
     userInteractingRef.current = false;
   };
-  
+
   const handleDoubleClick = (e: React.MouseEvent) => {
     e.preventDefault();
     userInteractingRef.current = true;
@@ -72,41 +72,52 @@ export const GamepadButton: React.FC<GamepadButtonProps> = ({
       onToggle();
     }
     // Keep flag set to prevent unlock until next state change
-    setTimeout(() => { userInteractingRef.current = false; }, 0);
+    setTimeout(() => {
+      userInteractingRef.current = false;
+    }, 0);
   };
-  
+
   const handleMouseLeave = () => {
     if (!isLocked && onRelease) {
       onRelease();
     }
     userInteractingRef.current = false;
   };
-  
+
   return (
     <div className="flex flex-col items-center gap-1">
       <button
         className={clsx(
-          'flex items-center justify-center rounded-md border h-11 w-11 text-xs font-semibold transition-all select-none',
+          'flex h-11 w-11 select-none items-center justify-center rounded-md border text-xs font-semibold transition-all',
           'hover:scale-105 active:scale-95',
-          isActive 
-            ? 'border-blue-500 bg-blue-500 text-white shadow-sm' 
-            : 'border-gray-300 bg-white text-gray-700 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 hover:border-blue-400 dark:hover:border-blue-500',
-          isLocked && 'ring-2 ring-blue-400 ring-offset-2 dark:ring-offset-gray-900',
-          className
+          isActive
+            ? 'border-blue-500 bg-blue-500 text-white shadow-sm'
+            : 'border-gray-300 bg-white text-gray-700 hover:border-blue-400 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:border-blue-500',
+          isLocked &&
+            'ring-2 ring-blue-400 ring-offset-2 dark:ring-offset-gray-900',
+          className,
         )}
         onMouseDown={handleMouseDown}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseLeave}
         onDoubleClick={handleDoubleClick}
-        title={keyBinding ? `Key: ${keyBinding} | Hold or double-click to lock` : 'Hold or double-click to lock'}
+        title={
+          keyBinding
+            ? `Key: ${keyBinding} | Hold or double-click to lock`
+            : 'Hold or double-click to lock'
+        }
       >
         <span>{displayValue}</span>
       </button>
       {keyBinding && (
-        <span className={clsx(
-          'text-[9px] opacity-70 leading-none',
-          isActive ? 'text-blue-500 dark:text-blue-400' : 'text-gray-500 dark:text-gray-400'
-        )}>
+        <span
+          className={clsx(
+            'text-[9px] leading-none opacity-70',
+            isActive
+              ? 'text-blue-500 dark:text-blue-400'
+              : 'text-gray-500 dark:text-gray-400',
+          )}
+        >
           {keyBinding}
         </span>
       )}
