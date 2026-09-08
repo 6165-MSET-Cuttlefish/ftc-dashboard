@@ -2,7 +2,11 @@ import { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 
 import LayoutPreset, { LayoutPresetType } from '@/enums/LayoutPreset';
-import { saveLayoutPreset, getLayoutPreset } from '@/store/actions/settings';
+import {
+  saveLayoutPreset,
+  getLayoutPreset,
+  receiveLayoutPreset,
+} from '@/store/actions/settings';
 import { RootState } from '@/store/reducers';
 
 import { BaseViewIconButton } from '@/components/views/BaseView';
@@ -11,6 +15,7 @@ import { ReactComponent as DisconnectedIcon } from '@/assets/icons/disconnected.
 import { ReactComponent as SettingsIcon } from '@/assets/icons/settings.svg';
 import SettingsModal from './SettingsModal';
 import { startSocketWatcher } from '@/store/middleware/socketMiddleware';
+import { readLayoutCodeFromUrl } from '@/components/ConfigurableLayout/layoutCode';
 
 export default function Dashboard() {
   const socket = useSelector((state: RootState) => state.socket);
@@ -29,6 +34,23 @@ export default function Dashboard() {
     dispatch(getLayoutPreset());
 
     startSocketWatcher(dispatch);
+  }, [dispatch]);
+
+  // Layout links are handled by the custom layout, so show it. The choice
+  // is only saved once the user applies the layout.
+  useEffect(() => {
+    const showCustomLayoutForLink = () => {
+      if (readLayoutCodeFromUrl() !== null) {
+        dispatch(receiveLayoutPreset(LayoutPreset.CONFIGURABLE));
+      }
+    };
+
+    showCustomLayoutForLink();
+    window.addEventListener('hashchange', showCustomLayoutForLink);
+
+    return () => {
+      window.removeEventListener('hashchange', showCustomLayoutForLink);
+    };
   }, [dispatch]);
 
   return (
