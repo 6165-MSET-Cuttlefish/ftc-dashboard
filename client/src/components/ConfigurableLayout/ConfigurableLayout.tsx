@@ -402,22 +402,21 @@ export default function ConfigurableLayout() {
 
   useEffect(() => {
     const keyDownListener = (e: KeyboardEvent) => {
-      if (!isLayoutLocked) {
-        if (navigator.platform.indexOf('Mac') > -1) {
-          if (e.metaKey && e.key === 'z') {
-            if (e.shiftKey) {
-              redoGrid();
-            } else {
-              undoGrid();
-            }
-          } else {
-            if (e.ctrlKey && e.key === 'z') {
-              undoGrid();
-            } else if (e.ctrlKey && e.key === 'y') {
-              redoGrid();
-            }
-          }
+      if (isLayoutLocked) return;
+
+      const isMac = navigator.platform.indexOf('Mac') > -1;
+      if (!(isMac ? e.metaKey : e.ctrlKey)) return;
+
+      // With Shift held the key reports as 'Z'.
+      const key = e.key.toLowerCase();
+      if (key === 'z') {
+        if (e.shiftKey) {
+          redoGrid();
+        } else {
+          undoGrid();
         }
+      } else if (key === 'y' && !isMac) {
+        redoGrid();
       }
     };
 
