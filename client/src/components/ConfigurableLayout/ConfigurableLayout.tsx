@@ -1,5 +1,6 @@
 import {
   ReactElement,
+  useCallback,
   useState,
   useEffect,
   useRef,
@@ -8,7 +9,7 @@ import {
   forwardRef,
 } from 'react';
 import RGL, { WidthProvider, Layout } from 'react-grid-layout';
-import { useDispatch } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
 import { v4 as uuidv4 } from 'uuid';
 
 import 'react-grid-layout/css/styles.css';
@@ -33,7 +34,15 @@ import RadialFab from './RadialFab/RadialFab';
 import RadialFabChild from './RadialFab/RadialFabChild';
 import ViewPicker from './ViewPicker';
 import ShareLayoutModal from './ShareLayoutModal';
-import { saveLayoutPreset } from '@/store/actions/settings';
+import {
+  deleteSavedLayout,
+  layoutLoaded,
+  loadSavedLayout,
+  saveLayout,
+  saveLayoutPreset,
+  setSavedLayoutEdited,
+} from '@/store/actions/settings';
+import { RootState } from '@/store/reducers';
 import {
   clearLayoutCodeFromUrl,
   decodeLayout,
@@ -102,6 +111,8 @@ const GRID_DOT_PADDING = 10;
 // Views that should only appear once in the layout
 const SINGLETON_VIEWS = new Set([ConfigurableView.GAMEPAD_VIEW]);
 
+const GRID_LIMITS = { cols: GRID_COL, minW: GRID_ITEM_MIN_WIDTH };
+
 const ReactGridLayout = WidthProvider(RGL);
 
 const Container = forwardRef<
@@ -147,6 +158,15 @@ type GridItemLayout = {
   isDraggable: boolean;
   isResizable: boolean;
 };
+
+const toSharedItems = (items: GridItem[]): SharedGridItem[] =>
+  items.map((item) => ({
+    view: item.view,
+    x: item.layout.x,
+    y: item.layout.y,
+    w: item.layout.w,
+    h: item.layout.h,
+  }));
 
 const HEIGHT_BREAKPOINTS = {
   MEDIUM: 730,
@@ -324,8 +344,18 @@ export default function ConfigurableLayout() {
 
   const theme = useTheme();
   const dispatch = useDispatch();
+  const savedLayouts = useSelector(
+    (state: RootState) => state.settings.savedLayouts,
+  );
+  const activeSavedLayout = useSelector(
+    (state: RootState) => state.settings.activeSavedLayout,
+  );
+  const layoutToLoad = useSelector(
+    (state: RootState) => state.settings.layoutToLoad,
+  );
 
   const [isLayoutLocked, setIsLayoutLocked] = useState(true);
+  const [isGridReady, setIsGridReady] = useState(false);
   const [isInDeleteMode, setIsInDeleteMode] = useState(false);
   const [isShowingViewPicker, setIsShowingViewPicker] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
@@ -415,6 +445,7 @@ export default function ConfigurableLayout() {
     });
 
     initializeGrid(newGridItems);
+    setIsGridReady(true);
   }, [initializeGrid]);
 
   useEffect(() => {
@@ -529,49 +560,82 @@ export default function ConfigurableLayout() {
     clearLayoutCodeFromUrl();
   };
 
-  const gridLimits = { cols: GRID_COL, minW: GRID_ITEM_MIN_WIDTH };
+  // Replaces the grid with a decoded code. Returns an error message, or null.
+  const applyLayoutCode = useCallback(
+    (text: string) => {
+      const result = decodeLayout(text, GRID_LIMITS);
+      if (!result.ok) return result.error;
+
+      const seenSingletons = new Set<ConfigurableView>();
+      const newGrid: GridItem[] = [];
+      for (const item of result.items) {
+        if (SINGLETON_VIEWS.has(item.view)) {
+          if (seenSingletons.has(item.view)) continue;
+          seenSingletons.add(item.view);
+        }
+        newGrid.push({
+          id: uuidv4(),
+          view: item.view,
+          layout: {
+            x: item.x,
+            y: item.y,
+            w: item.w,
+            h: item.h,
+            minW: GRID_ITEM_MIN_WIDTH,
+            isDraggable: !isLayoutLocked,
+            isResizable: !isLayoutLocked,
+          },
+        });
+      }
+
+      setGrid(newGrid);
+      return null;
+    },
+    [isLayoutLocked, setGrid],
+  );
 
   const importLayout = (text: string) => {
-    const result = decodeLayout(text, gridLimits);
-    if (!result.ok) return result.error;
-
-    const seenSingletons = new Set<ConfigurableView>();
-    const newGrid: GridItem[] = [];
-    for (const item of result.items) {
-      if (SINGLETON_VIEWS.has(item.view)) {
-        if (seenSingletons.has(item.view)) continue;
-        seenSingletons.add(item.view);
-      }
-      newGrid.push({
-        id: uuidv4(),
-        view: item.view,
-        layout: {
-          x: item.x,
-          y: item.y,
-          w: item.w,
-          h: item.h,
-          minW: GRID_ITEM_MIN_WIDTH,
-          isDraggable: !isLayoutLocked,
-          isResizable: !isLayoutLocked,
-        },
-      });
-    }
-
-    setGrid(newGrid);
+    const error = applyLayoutCode(text);
+    if (error !== null) return error;
     closeShareModal();
     dispatch(saveLayoutPreset('CONFIGURABLE'));
     return null;
   };
 
-  const sharedItems: SharedGridItem[] = gridItems.map((item) => ({
-    view: item.view,
-    x: item.layout.x,
-    y: item.layout.y,
-    w: item.layout.w,
-    h: item.layout.h,
-  }));
-  const shareCode = encodeLayout(sharedItems);
-  const shareCheck = decodeLayout(shareCode, gridLimits);
+  // A saved layout picked from the header list arrives here. One that no
+  // longer decodes is left unselected rather than shown as loaded.
+  useEffect(() => {
+    if (layoutToLoad === null) return;
+    const error = applyLayoutCode(layoutToLoad.code);
+    dispatch(layoutLoaded());
+    if (error !== null) {
+      console.error(error);
+      dispatch(saveLayoutPreset('CONFIGURABLE'));
+    }
+  }, [layoutToLoad, applyLayoutCode, dispatch]);
+
+  // The header shows which saved layout is loaded, and whether it has changed.
+  useEffect(() => {
+    if (!isGridReady || layoutToLoad !== null || activeSavedLayout === null) {
+      return;
+    }
+    const saved = savedLayouts.find((l) => l.id === activeSavedLayout.id);
+    if (saved === undefined) return;
+    const edited = encodeLayout(toSharedItems(gridItems)) !== saved.code;
+    if (edited !== activeSavedLayout.edited) {
+      dispatch(setSavedLayoutEdited(edited));
+    }
+  }, [
+    gridItems,
+    isGridReady,
+    layoutToLoad,
+    activeSavedLayout,
+    savedLayouts,
+    dispatch,
+  ]);
+
+  const shareCode = encodeLayout(toSharedItems(gridItems));
+  const shareCheck = decodeLayout(shareCode, GRID_LIMITS);
   const exportError =
     gridItems.length === 0
       ? 'Add a view before sharing.'
@@ -760,7 +824,7 @@ export default function ConfigurableLayout() {
           openMargin="5.5em"
           fineAdjustIconX="-4%"
           fineAdjustIconY="0"
-          toolTipText="Share Layout"
+          toolTipText="Share or Save Layout"
           onClick={() => {
             setSharedImportText('');
             setIsShareModalOpen(true);
@@ -785,6 +849,16 @@ export default function ConfigurableLayout() {
         exportError={exportError}
         initialImportText={sharedImportText}
         onImport={importLayout}
+        savedLayouts={savedLayouts}
+        activeLayoutName={
+          savedLayouts.find((l) => l.id === activeSavedLayout?.id)?.name ?? null
+        }
+        onSave={(name) => dispatch(saveLayout(name, shareCode))}
+        onLoad={(id) => {
+          dispatch(loadSavedLayout(id, true));
+          closeShareModal();
+        }}
+        onDelete={(id) => dispatch(deleteSavedLayout(id))}
       />
     </Container>
   );

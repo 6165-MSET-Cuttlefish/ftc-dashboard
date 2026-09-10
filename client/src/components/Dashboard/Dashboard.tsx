@@ -5,6 +5,8 @@ import LayoutPreset, { LayoutPresetType } from '@/enums/LayoutPreset';
 import {
   saveLayoutPreset,
   getLayoutPreset,
+  getSavedLayouts,
+  loadSavedLayout,
   receiveLayoutPreset,
 } from '@/store/actions/settings';
 import { RootState } from '@/store/reducers';
@@ -17,10 +19,19 @@ import SettingsModal from './SettingsModal';
 import { startSocketWatcher } from '@/store/middleware/socketMiddleware';
 import { readLayoutCodeFromUrl } from '@/components/ConfigurableLayout/layoutCode';
 
+// Saved layouts share the preset list, so their option values are prefixed.
+const SAVED_OPTION_PREFIX = 'saved:';
+
 export default function Dashboard() {
   const socket = useSelector((state: RootState) => state.socket);
   const layoutPreset = useSelector(
     (state: RootState) => state.settings.layoutPreset,
+  );
+  const savedLayouts = useSelector(
+    (state: RootState) => state.settings.savedLayouts,
+  );
+  const activeSavedLayout = useSelector(
+    (state: RootState) => state.settings.activeSavedLayout,
   );
   const enabled = useSelector((state: RootState) => state.status.enabled);
   const batteryVoltage = useSelector(
@@ -32,8 +43,24 @@ export default function Dashboard() {
 
   useEffect(() => {
     dispatch(getLayoutPreset());
+    dispatch(getSavedLayouts());
 
     startSocketWatcher(dispatch);
+  }, [dispatch]);
+
+  // Saved layouts written by another tab show up here without a reload.
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === null || e.key === 'savedLayouts') {
+        dispatch(getSavedLayouts());
+      }
+    };
+
+    window.addEventListener('storage', onStorage);
+
+    return () => {
+      window.removeEventListener('storage', onStorage);
+    };
   }, [dispatch]);
 
   // Layout links are handled by the custom layout, so show it. The choice
@@ -62,11 +89,23 @@ export default function Dashboard() {
         <h1 className="text-2xl font-medium">FTC Dashboard</h1>
         <div className="flex-center">
           <select
-            className="mx-2 rounded border-primary-300 bg-primary-100 py-1 text-sm text-black focus:border-primary-100 focus:ring-2 focus:ring-white focus:ring-opacity-40"
-            value={layoutPreset as LayoutPresetType}
-            onChange={(evt) =>
-              dispatch(saveLayoutPreset(evt.target.value as LayoutPresetType))
+            className="mx-2 max-w-[16rem] truncate rounded border-primary-300 bg-primary-100 py-1 text-sm text-black focus:border-primary-100 focus:ring-2 focus:ring-white focus:ring-opacity-40"
+            value={
+              layoutPreset === LayoutPreset.CONFIGURABLE &&
+              activeSavedLayout !== null
+                ? SAVED_OPTION_PREFIX + activeSavedLayout.id
+                : (layoutPreset as LayoutPresetType)
             }
+            onChange={(evt) => {
+              const value = evt.target.value;
+              if (value.startsWith(SAVED_OPTION_PREFIX)) {
+                dispatch(
+                  loadSavedLayout(value.slice(SAVED_OPTION_PREFIX.length)),
+                );
+              } else {
+                dispatch(saveLayoutPreset(value as LayoutPresetType));
+              }
+            }}
           >
             {Object.keys(LayoutPreset)
               .filter(
@@ -78,6 +117,22 @@ export default function Dashboard() {
                   {LayoutPreset.getName(key as LayoutPresetType)}
                 </option>
               ))}
+            {savedLayouts.length > 0 && (
+              <optgroup label="Saved layouts">
+                {savedLayouts.map((layout) => (
+                  <option
+                    key={layout.id}
+                    value={SAVED_OPTION_PREFIX + layout.id}
+                  >
+                    {layout.name}
+                    {activeSavedLayout?.id === layout.id &&
+                    activeSavedLayout.edited
+                      ? ' (edited)'
+                      : ''}
+                  </option>
+                ))}
+              </optgroup>
+            )}
           </select>
           {socket.isConnected && (
             <p
