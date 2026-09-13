@@ -17,6 +17,8 @@ import { ReactComponent as ChartIcon } from '@/assets/icons/chart.svg';
 import { ReactComponent as CloseIcon } from '@/assets/icons/close.svg';
 import { ReactComponent as PlayIcon } from '@/assets/icons/play_arrow.svg';
 import { ReactComponent as PauseIcon } from '@/assets/icons/pause.svg';
+import { ReactComponent as FullscreenIcon } from '@/assets/icons/fullscreen.svg';
+import { ReactComponent as FullscreenExitIcon } from '@/assets/icons/fullscreen_exit.svg';
 
 import { RootState } from '@/store/reducers';
 import { STOP_OP_MODE_TAG } from '@/store/types';
@@ -24,6 +26,20 @@ import { OpModeStatus } from '@/enums/OpModeStatus';
 import { colors, ThemeConsumer } from '@/hooks/useTheme';
 import { DEFAULT_OPTIONS } from './Graph';
 import { validateInt, ValResult } from '@/components/inputs/validation';
+
+// a window of zero or less has no meaning and divides by zero when plotting
+const validateWindowMs = (raw: string): ValResult<number> => {
+  const result = validateInt(raw);
+
+  return result.valid && result.value <= 0
+    ? { value: raw, valid: false }
+    : result;
+};
+
+type TimeBounds = {
+  minMs: number;
+  maxMs: number;
+};
 
 type GraphViewState = {
   graphing: boolean;
@@ -33,6 +49,14 @@ type GraphViewState = {
   availableKeys: string[];
   selectedKeys: string[];
   windowMs: ValResult<number>;
+  // telemetry time shown at the right edge while scrubbing; null follows live data
+  scrubMs: number | null;
+  timeBounds: TimeBounds | null;
+  // bumped to clear the recorded history when a new op mode run begins
+  runId: number;
+  isFullscreen: boolean;
+  // replaying the recorded history forward in real time, cursor and all
+  playing: boolean;
 };
 
 const mapStateToProps = (state: RootState) => ({
@@ -49,6 +73,15 @@ type GraphViewProps = ConnectedProps<typeof connector> &
 class GraphView extends Component<GraphViewProps, GraphViewState> {
   containerRef: React.RefObject<HTMLDivElement>;
 
+  playFrameId: number | null = null;
+  lastPlayFrameMs = 0;
+
+  graphDataCache: {
+    telemetry: GraphViewProps['telemetry'];
+    selectedKeys: string[];
+    data: { name: string; value: number }[][];
+  } | null = null;
+
   constructor(props: GraphViewProps) {
     super(props);
 
@@ -63,6 +96,11 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
         value: DEFAULT_OPTIONS.windowMs,
         valid: true,
       },
+      scrubMs: null,
+      timeBounds: null,
+      runId: 0,
+      isFullscreen: false,
+      playing: false,
     };
 
     this.containerRef = React.createRef();
@@ -74,6 +112,15 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
     this.userPause = this.userPause.bind(this);
 
     this.handleDocumentKeydown = this.handleDocumentKeydown.bind(this);
+    this.handleFullscreenChange = this.handleFullscreenChange.bind(this);
+    this.toggleFullscreen = this.toggleFullscreen.bind(this);
+    this.onTimeBounds = this.onTimeBounds.bind(this);
+    this.goLive = this.goLive.bind(this);
+
+    this.togglePlayback = this.togglePlayback.bind(this);
+    this.startReplay = this.startReplay.bind(this);
+    this.pauseReplay = this.pauseReplay.bind(this);
+    this.playTick = this.playTick.bind(this);
   }
 
   componentDidMount() {
@@ -83,6 +130,8 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
         this.handleDocumentKeydown,
       );
     }
+
+    document.addEventListener('fullscreenchange', this.handleFullscreenChange);
   }
 
   componentWillUnmount() {
@@ -92,6 +141,13 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
         this.handleDocumentKeydown,
       );
     }
+
+    document.removeEventListener(
+      'fullscreenchange',
+      this.handleFullscreenChange,
+    );
+
+    this.cancelPlayback();
   }
 
   componentDidUpdate(prevProps: GraphViewProps) {
@@ -101,6 +157,13 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
     if (!this.noOpmodeRunning(this.props) && this.noOpmodeRunning(prevProps)) {
       this.opmodePlay();
     }
+
+    // a fresh op mode run starts the recorded history over
+    const opmodeStarted =
+      !this.noOpmodeRunning(this.props) &&
+      (this.noOpmodeRunning(prevProps) ||
+        this.props.status.activeOpMode !== prevProps.status.activeOpMode);
+    if (opmodeStarted) this.resetHistory();
 
     if (this.props.telemetry === prevProps.telemetry) return;
 
@@ -128,11 +191,54 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
   }
 
   handleDocumentKeydown(evt: KeyboardEvent) {
+    // let form controls (notably the scrub slider) handle their own keys
+    const tagName = (evt.target as HTMLElement | null)?.tagName;
+    if (
+      tagName === 'INPUT' ||
+      tagName === 'TEXTAREA' ||
+      tagName === 'SELECT' ||
+      tagName === 'BUTTON'
+    ) {
+      return;
+    }
+
     if (evt.code === 'Space' || evt.key === 'k') {
-      this.setState({
-        ...this.state,
-        userPaused: !this.state.userPaused,
-        pausedTime: Date.now(),
+      evt.preventDefault();
+      this.togglePlayback();
+    } else if (evt.key === 'ArrowLeft' || evt.key === 'ArrowRight') {
+      evt.preventDefault();
+
+      const windowMs = this.effectiveWindowMs();
+      const step = windowMs * (evt.shiftKey ? 1 : 0.1);
+      this.scrubBy(evt.key === 'ArrowLeft' ? -step : step);
+    } else if (evt.key === 'Home') {
+      evt.preventDefault();
+      this.scrubTo(this.getScrubRange()?.min ?? null);
+    } else if (evt.key === 'End') {
+      evt.preventDefault();
+      this.goLive();
+    } else if (
+      evt.key === 'Escape' &&
+      this.state.scrubMs !== null &&
+      !this.state.isFullscreen
+    ) {
+      // in fullscreen the browser claims Escape for exiting
+      this.goLive();
+    }
+  }
+
+  handleFullscreenChange() {
+    this.setState({
+      isFullscreen: document.fullscreenElement === this.containerRef.current,
+    });
+  }
+
+  toggleFullscreen() {
+    if (document.fullscreenElement === this.containerRef.current) {
+      document.exitFullscreen();
+    } else {
+      this.containerRef.current?.requestFullscreen?.().catch(() => {
+        // the browser refused; nothing to do but stay windowed
       });
     }
   }
@@ -145,18 +251,161 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
     );
   }
 
+  // true whenever the plot is frozen, whether by the user, a stopped op mode, or scrubbing
+  isPaused() {
+    return (
+      this.state.userPaused ||
+      this.state.opmodePaused ||
+      this.state.scrubMs !== null
+    );
+  }
+
+  effectiveWindowMs() {
+    const { windowMs } = this.state;
+
+    return windowMs.valid && windowMs.value > 0
+      ? windowMs.value
+      : DEFAULT_OPTIONS.windowMs;
+  }
+
+  // the span of positions the scrub slider can address; the right edge of the
+  // plot can go no further left than one window past the oldest sample
+  getScrubRange() {
+    const bounds = this.state.timeBounds;
+    if (bounds === null) return null;
+
+    const min = Math.min(bounds.minMs + this.effectiveWindowMs(), bounds.maxMs);
+
+    return { min, max: bounds.maxMs };
+  }
+
+  onTimeBounds(timeBounds: TimeBounds | null) {
+    this.setState((state) => ({
+      timeBounds,
+      // a truncated history can leave the scrub position out of range
+      scrubMs:
+        state.scrubMs !== null && timeBounds !== null
+          ? Math.max(state.scrubMs, timeBounds.minMs)
+          : state.scrubMs,
+    }));
+  }
+
+  scrubTo(scrubMs: number | null) {
+    const range = this.getScrubRange();
+    if (range === null || scrubMs === null) return;
+
+    this.setState((state) => ({
+      scrubMs: Math.max(range.min, Math.min(range.max, scrubMs)),
+      pausedTime: this.isPaused() ? state.pausedTime : Date.now(),
+    }));
+  }
+
+  scrubBy(deltaMs: number) {
+    const range = this.getScrubRange();
+    if (range === null) return;
+
+    this.scrubTo((this.state.scrubMs ?? range.max) + deltaMs);
+  }
+
+  goLive() {
+    this.cancelPlayback();
+    this.setState({ scrubMs: null, playing: false });
+  }
+
+  cancelPlayback() {
+    if (this.playFrameId !== null) {
+      cancelAnimationFrame(this.playFrameId);
+      this.playFrameId = null;
+    }
+  }
+
+  // true when the recorded history can be replayed: the op mode is over, so
+  // nothing new is arriving to fight the cursor for the right edge
+  canReplay() {
+    const range = this.getScrubRange();
+
+    return (
+      this.noOpmodeRunning(this.props) &&
+      range !== null &&
+      range.max > range.min
+    );
+  }
+
+  // plays the history forward from the cursor at 1x, since telemetry time and
+  // wall time are both in milliseconds
+  startReplay() {
+    const range = this.getScrubRange();
+    if (range === null || range.max <= range.min) return;
+
+    // starting from the end (or from live) replays the run from the beginning
+    const cursor = this.state.scrubMs;
+    const from = cursor === null || cursor >= range.max ? range.min : cursor;
+
+    this.cancelPlayback();
+    this.lastPlayFrameMs = performance.now();
+    this.setState((state) => ({
+      playing: true,
+      scrubMs: from,
+      pausedTime: this.isPaused() ? state.pausedTime : Date.now(),
+    }));
+    this.playFrameId = requestAnimationFrame(this.playTick);
+  }
+
+  pauseReplay() {
+    this.cancelPlayback();
+    this.setState({ playing: false });
+  }
+
+  playTick(now: number) {
+    const range = this.getScrubRange();
+    if (range === null) {
+      this.pauseReplay();
+      return;
+    }
+
+    const dt = now - this.lastPlayFrameMs;
+    this.lastPlayFrameMs = now;
+
+    const next = (this.state.scrubMs ?? range.min) + dt;
+
+    if (next >= range.max) {
+      // played out to the end of the recording
+      this.cancelPlayback();
+      this.setState({ scrubMs: range.max, playing: false });
+      return;
+    }
+
+    this.setState({ scrubMs: Math.max(range.min, next) });
+    this.playFrameId = requestAnimationFrame(this.playTick);
+  }
+
+  resetHistory() {
+    this.cancelPlayback();
+    this.setState((state) => ({
+      runId: state.runId + 1,
+      scrubMs: null,
+      timeBounds: null,
+      playing: false,
+    }));
+  }
+
   start() {
     this.setState({
       ...this.state,
       graphing: true,
       userPaused: false,
+      scrubMs: null,
+      timeBounds: null,
+      playing: false,
     });
   }
 
   stop() {
+    this.cancelPlayback();
     this.setState({
       ...this.state,
       graphing: false,
+      playing: false,
     });
   }
 
@@ -164,10 +413,7 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
     this.setState({
       ...this.state,
       userPaused: true,
-      pausedTime:
-        this.state.userPaused || this.state.opmodePaused
-          ? this.state.pausedTime
-          : Date.now(),
+      pausedTime: this.isPaused() ? this.state.pausedTime : Date.now(),
     });
   }
 
@@ -175,10 +421,7 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
     this.setState({
       ...this.state,
       opmodePaused: true,
-      pausedTime:
-        this.state.userPaused || this.state.opmodePaused
-          ? this.state.pausedTime
-          : Date.now(),
+      pausedTime: this.isPaused() ? this.state.pausedTime : Date.now(),
     });
   }
 
@@ -196,6 +439,134 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
     });
   }
 
+  playPauseTitle() {
+    if (this.noOpmodeRunning(this.props)) {
+      if (this.state.playing) return 'Pause Replay';
+
+      return this.canReplay()
+        ? 'Replay the recording from the cursor'
+        : 'Nothing recorded to replay yet';
+    }
+
+    return this.state.userPaused ? 'Resume Graphing' : 'Pause Graphing';
+  }
+
+  togglePlayback() {
+    if (this.noOpmodeRunning(this.props)) {
+      if (this.state.playing) {
+        this.pauseReplay();
+      } else {
+        this.startReplay();
+      }
+    } else if (this.state.userPaused) {
+      this.userPlay();
+    } else {
+      this.userPause();
+    }
+  }
+
+  // the replay loop re-renders every frame, so don't rebuild the samples that
+  // haven't changed since the last telemetry packet
+  getGraphData() {
+    const { telemetry } = this.props;
+    const { selectedKeys } = this.state;
+
+    const cached = this.graphDataCache;
+    if (
+      cached !== null &&
+      cached.telemetry === telemetry &&
+      cached.selectedKeys === selectedKeys
+    ) {
+      return cached.data;
+    }
+
+    const data = telemetry.map((packet) => [
+      {
+        name: 'time',
+        value: packet.timestamp,
+      },
+      ...Object.keys(packet.data)
+        .filter((key) => selectedKeys.includes(key))
+        .map((key) => ({
+          name: key,
+          value: parseFloat(packet.data[key]),
+        })),
+    ]);
+
+    this.graphDataCache = { telemetry, selectedKeys, data };
+
+    return data;
+  }
+
+  renderScrubber() {
+    const bounds = this.state.timeBounds;
+    const range = this.getScrubRange();
+
+    const scrubbable =
+      bounds !== null && range !== null && range.max > range.min;
+    const position = this.state.scrubMs ?? range?.max ?? 0;
+
+    // the slider works in ms since the start of the history rather than in
+    // absolute telemetry time, which keeps the numbers small and the readout
+    // honest: 0 s really is the beginning of the run
+    const windowMs = this.effectiveWindowMs();
+    const spanMs = bounds === null ? 0 : bounds.maxMs - bounds.minMs;
+    const relPosition = bounds === null ? 0 : position - bounds.minMs;
+
+    const windowEndS = relPosition / 1000;
+    const windowStartS = Math.max(0, relPosition - windowMs) / 1000;
+    const totalS = spanMs / 1000;
+
+    return (
+      <div className="flex items-center space-x-3 py-2">
+        <input
+          type="range"
+          min={Math.min(windowMs, spanMs)}
+          max={spanMs || 1}
+          step={1}
+          value={relPosition}
+          disabled={!scrubbable}
+          onChange={(evt) =>
+            this.scrubTo((bounds?.minMs ?? 0) + parseFloat(evt.target.value))
+          }
+          title={
+            scrubbable
+              ? 'Drag to pan through the recorded history (or use the arrow keys)'
+              : 'Not enough history recorded to pan yet'
+          }
+          className="h-2 flex-1 cursor-pointer appearance-none rounded-lg bg-gray-200 disabled:cursor-default disabled:opacity-50 dark:bg-slate-700
+            [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary-500
+            [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:cursor-pointer [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-primary-500"
+        />
+        <span
+          className="whitespace-nowrap text-xs tabular-nums text-gray-600 dark:text-gray-400"
+          title="Visible window, and the total length of the recorded history"
+        >
+          {bounds === null ? (
+            <>&mdash;</>
+          ) : (
+            <>
+              {windowStartS.toFixed(1)}&ndash;{windowEndS.toFixed(1)}s of{' '}
+              {totalS.toFixed(1)}s
+            </>
+          )}
+        </span>
+        <button
+          className="rounded-md border py-1 px-3 text-sm shadow-md transition-colors disabled:opacity-50 dark:border-slate-600"
+          onClick={this.goLive}
+          disabled={this.state.scrubMs === null}
+          title={
+            this.noOpmodeRunning(this.props)
+              ? 'Jump to the end of the recording'
+              : 'Return to the live end of the graph'
+          }
+        >
+          {this.noOpmodeRunning(this.props) ? 'End' : 'Live'}
+        </button>
+      </div>
+    );
+  }
+
   render() {
     const showNoNumeric =
       !this.state.graphing && this.state.availableKeys.length === 0;
@@ -203,20 +574,11 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
       this.state.graphing && this.state.selectedKeys.length === 0;
     const showText = showNoNumeric || showEmpty;
 
-    const graphData = this.props.telemetry.map((packet) => [
-      {
-        name: 'time',
-        value: packet.timestamp,
-      },
-      ...Object.keys(packet.data)
-        .filter((key) => this.state.selectedKeys.includes(key))
-        .map((key) => {
-          return {
-            name: key,
-            value: parseFloat(packet.data[key]),
-          };
-        }),
-    ]);
+    // with the op mode over, the play button replays the recording instead of
+    // resuming a live feed that isn't coming back
+    const replayMode = this.noOpmodeRunning(this.props);
+
+    const graphData = this.getGraphData();
 
     return (
       <BaseView
@@ -232,22 +594,31 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
           <BaseViewIcons>
             {this.state.graphing && this.state.selectedKeys.length !== 0 && (
               <BaseViewIconButton
-                title={
-                  this.state.userPaused
-                    ? 'Resume Graphing'
-                    : this.noOpmodeRunning(this.props)
-                    ? 'Graphing will restart when an OpMode starts'
-                    : 'Pause Graphing'
+                title={this.playPauseTitle()}
+                disabled={
+                  replayMode && !this.state.playing && !this.canReplay()
                 }
-                className="icon-btn h-8 w-8"
+                onClick={this.togglePlayback}
+                className="disabled:opacity-40"
               >
-                {this.state.userPaused ? (
-                  <PlayIcon className="h-6 w-6" onClick={this.userPlay} />
+                {(replayMode ? !this.state.playing : this.state.userPaused) ? (
+                  <PlayIcon className="h-6 w-6" />
                 ) : (
-                  <PauseIcon className="h-6 w-6" onClick={this.userPause} />
+                  <PauseIcon className="h-6 w-6" />
                 )}
               </BaseViewIconButton>
             )}
+
+            <BaseViewIconButton
+              title={this.state.isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+              onClick={this.toggleFullscreen}
+            >
+              {this.state.isFullscreen ? (
+                <FullscreenExitIcon className="h-6 w-6" />
+              ) : (
+                <FullscreenIcon className="h-6 w-6" />
+              )}
+            </BaseViewIconButton>
 
             <BaseViewIconButton
               title={this.state.graphing ? 'Stop Graphing' : 'Start Graphing'}
@@ -294,7 +665,7 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
                             <TextInput
                               value={this.state.windowMs.value}
                               valid={this.state.windowMs.valid}
-                              validate={validateInt}
+                              validate={validateWindowMs}
                               onChange={(arg) =>
                                 this.setState({
                                   windowMs: arg,
@@ -316,22 +687,32 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
           ) : (
             <ThemeConsumer>
               {({ isDarkMode }) => (
-                <GraphCanvas
-                  data={graphData}
-                  options={{
-                    windowMs: this.state.windowMs.valid
-                      ? this.state.windowMs.value
-                      : DEFAULT_OPTIONS.windowMs,
-                    gridLineColor: isDarkMode
-                      ? colors.slate[500]
-                      : colors.gray[300],
-                    textColor: isDarkMode
-                      ? colors.slate[100]
-                      : colors.gray[900],
-                  }}
-                  paused={this.state.userPaused || this.state.opmodePaused}
-                  pausedTime={this.state.pausedTime}
-                />
+                <div
+                  className="flex h-full flex-col"
+                  // focus the view so the arrow keys pan the graph
+                  onMouseDown={() => this.containerRef.current?.focus()}
+                >
+                  <div className="min-h-0 flex-1">
+                    <GraphCanvas
+                      data={graphData}
+                      options={{
+                        windowMs: this.effectiveWindowMs(),
+                        gridLineColor: isDarkMode
+                          ? colors.slate[500]
+                          : colors.gray[300],
+                        textColor: isDarkMode
+                          ? colors.slate[100]
+                          : colors.gray[900],
+                      }}
+                      paused={this.isPaused()}
+                      pausedTime={this.state.pausedTime}
+                      scrubMs={this.state.scrubMs}
+                      runId={this.state.runId}
+                      onTimeBounds={this.onTimeBounds}
+                    />
+                  </div>
+                  {this.renderScrubber()}
+                </div>
               )}
             </ThemeConsumer>
           )}

@@ -38,6 +38,46 @@ export const DEFAULT_OPTIONS: Options = {
   maxTicks: 7,
 };
 
+// upper bound on the number of retained samples per series; at typical telemetry
+// rates (~10-50 Hz) this covers well over an hour of an op mode
+const MAX_HISTORY_SAMPLES = 100000;
+
+// first index i such that ts[i] >= value (ts is sorted ascending)
+function lowerBound(ts: number[], value: number) {
+  let lo = 0;
+  let hi = ts.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (ts[mid] < value) {
+      lo = mid + 1;
+    } else {
+      hi = mid;
+    }
+  }
+  return lo;
+}
+
+// inclusive index range of the samples needed to draw [startMs, endMs]; one
+// sample beyond each edge is included so lines run to the edge of the plot.
+// null means the series has nothing to show in this window — importantly, a
+// series that starts after it or ended before it, whose nearest sample would
+// otherwise drag the y-axis toward a value that isn't on screen
+function visibleRange(ts: number[], startMs: number, endMs: number) {
+  if (ts.length === 0) return null;
+
+  const lo = lowerBound(ts, startMs);
+  const hi = lowerBound(ts, endMs);
+
+  if (lo === hi) {
+    // no samples land inside the window; only a segment spanning it is visible
+    if (lo === 0 || lo === ts.length) return null;
+
+    return { first: lo - 1, last: lo };
+  }
+
+  return { first: Math.max(0, lo - 1), last: Math.min(ts.length - 1, hi) };
+}
+
 function niceNum(range: number, round: boolean) {
   const exponent = Math.floor(Math.log10(range));
   const fraction = range / Math.pow(10, exponent);
@@ -213,6 +253,10 @@ export default class Graph {
   beginGraphNowMs = Number.NaN; // in telemetry time
   beginRenderTimeMs = Number.NaN; // in browser time
 
+  // extent of the retained history, in telemetry time
+  firstSampleMs = Number.NaN;
+  latestSampleMs = Number.NaN;
+
   scaling: Scaling;
 
   constructor(canvas: HTMLCanvasElement, options: Options) {
@@ -241,6 +285,36 @@ export default class Graph {
 
     this.beginGraphNowMs = Number.NaN; // in telemetry time
     this.beginRenderTimeMs = Number.NaN; // in browser time
+
+    this.firstSampleMs = Number.NaN;
+    this.latestSampleMs = Number.NaN;
+  }
+
+  // re-anchors telemetry time to browser time; used when resuming after a pause
+  // so that playback picks up from the newest sample instead of replaying the gap
+  resync(time: number) {
+    if (isNaN(this.latestSampleMs)) return;
+
+    this.beginGraphNowMs = this.latestSampleMs - 250;
+    this.beginRenderTimeMs = time;
+  }
+
+  hasData() {
+    return Object.values(this.data).some(({ ts }) => ts.length > 0);
+  }
+
+  // extent of the retained history, or null if nothing has been recorded
+  getTimeBounds() {
+    if (isNaN(this.firstSampleMs) || isNaN(this.latestSampleMs)) return null;
+
+    return { minMs: this.firstSampleMs, maxMs: this.latestSampleMs };
+  }
+
+  // the telemetry time shown at the right edge for live (non-scrubbed) playback
+  getGraphNowMs(time: number) {
+    if (isNaN(this.beginGraphNowMs)) return Number.NaN;
+
+    return this.beginGraphNowMs + (time - this.beginRenderTimeMs);
   }
 
   add(time: number, samples: Sample[][]) {
@@ -270,6 +344,27 @@ export default class Graph {
         const { ts, vs } = this.data[name];
         ts.push(t);
         vs.push(value);
+
+        if (ts.length > MAX_HISTORY_SAMPLES) {
+          const excess = ts.length - MAX_HISTORY_SAMPLES;
+          ts.splice(0, excess);
+          vs.splice(0, excess);
+
+          // the oldest retained sample moved, so the history no longer reaches
+          // as far back as it used to
+          this.firstSampleMs = Math.min(
+            ...Object.values(this.data)
+              .filter((series) => series.ts.length > 0)
+              .map((series) => series.ts[0]),
+          );
+        }
+
+        if (isNaN(this.firstSampleMs) || t < this.firstSampleMs) {
+          this.firstSampleMs = t;
+        }
+        if (isNaN(this.latestSampleMs) || t > this.latestSampleMs) {
+          this.latestSampleMs = t;
+        }
       }
     }
 
@@ -283,15 +378,23 @@ export default class Graph {
     }
   }
 
-  getYAxisScaling() {
-    const [min, max] = Object.keys(this.data).reduce(
-      (acc, k) =>
-        this.data[k].vs.reduce(
-          ([min, max], v) => [Math.min(v, min), Math.max(v, max)],
-          acc,
-        ),
-      [Number.MAX_VALUE, Number.MIN_VALUE],
-    );
+  getYAxisScaling(startMs: number, endMs: number) {
+    let [min, max] = [Number.MAX_VALUE, -Number.MAX_VALUE];
+
+    for (const { ts, vs } of Object.values(this.data)) {
+      const range = visibleRange(ts, startMs, endMs);
+      if (range === null) continue;
+
+      for (let i = range.first; i <= range.last; i++) {
+        min = Math.min(vs[i], min);
+        max = Math.max(vs[i], max);
+      }
+    }
+
+    if (min > max) {
+      // nothing falls inside the window
+      return getAxisScaling(-1, 1, this.options.maxTicks);
+    }
 
     if (Math.abs(min - max) < 1e-6) {
       return getAxisScaling(min - 1, max + 1, this.options.maxTicks);
@@ -300,33 +403,22 @@ export default class Graph {
     return getAxisScaling(min, max, this.options.maxTicks);
   }
 
-  render(time: number) {
+  // when scrubMs is given, it replaces live playback as the telemetry time shown
+  // at the right edge of the plot
+  render(time: number, scrubMs?: number | null) {
     const o = this.options;
 
     // eslint-disable-next-line
     this.canvas.width = this.canvas.width; // clears the canvas
 
-    if (isNaN(this.beginGraphNowMs)) return false;
+    const graphNowMs =
+      typeof scrubMs === 'number' && !isNaN(scrubMs)
+        ? scrubMs
+        : this.getGraphNowMs(time);
 
-    const graphNowMs = this.beginGraphNowMs + (time - this.beginRenderTimeMs);
+    if (isNaN(graphNowMs)) return false;
 
-    // prune old samples
-    for (const k of Object.keys(this.data)) {
-      const { ts, vs } = this.data[k];
-      while (ts.length > 0 && ts[0] + o.windowMs + 250 < graphNowMs) {
-        ts.shift();
-        vs.shift();
-      }
-    }
-
-    let allEmpty = true;
-    for (const { ts } of Object.values(this.data)) {
-      if (ts.length === 0) continue;
-
-      allEmpty = false;
-      break;
-    }
-    if (allEmpty) return false;
+    if (!this.hasData()) return false;
 
     // scale the canvas to facilitate the use of CSS pixels
     this.ctx.scale(devicePixelRatio, devicePixelRatio);
@@ -389,7 +481,7 @@ export default class Graph {
 
     const graphHeight = height - 2 * o.padding;
 
-    const axis = this.getYAxisScaling();
+    const axis = this.getYAxisScaling(graphNowMs - o.windowMs, graphNowMs);
     const ticks = getTicks(axis);
     const axisWidth = this.renderAxisLabels(
       x + o.padding,
@@ -503,7 +595,8 @@ export default class Graph {
     Object.keys(this.data).forEach((k, i) => {
       const { ts, vs } = this.data[k];
 
-      if (ts.length === 0) return;
+      const range = visibleRange(ts, graphNowMs - o.windowMs, graphNowMs);
+      if (range === null) return;
 
       const color = o.colors[i % o.colors.length];
 
@@ -512,10 +605,16 @@ export default class Graph {
       fineMoveTo(
         this.ctx,
         this.scaling,
-        scale(ts[0] - graphNowMs + o.windowMs, 0, o.windowMs, 0, width),
-        scale(vs[0], axis.min, axis.max, height, 0),
+        scale(
+          ts[range.first] - graphNowMs + o.windowMs,
+          0,
+          o.windowMs,
+          0,
+          width,
+        ),
+        scale(vs[range.first], axis.min, axis.max, height, 0),
       );
-      for (let j = 1; j < ts.length; j++) {
+      for (let j = range.first + 1; j <= range.last; j++) {
         fineLineTo(
           this.ctx,
           this.scaling,

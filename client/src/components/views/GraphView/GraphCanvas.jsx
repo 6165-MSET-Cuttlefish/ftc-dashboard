@@ -15,6 +15,8 @@ class GraphCanvas extends React.Component {
 
     this.unsubs = []; // unsub functions to be called to cleanup
 
+    this.reportedBounds = null;
+
     this.state = {
       graphEmpty: false,
     };
@@ -22,6 +24,10 @@ class GraphCanvas extends React.Component {
 
   componentDidMount() {
     this.graph = new Graph(this.canvasRef.current, this.props.options);
+
+    // draw once up front: with no telemetry arriving (op mode over) nothing
+    // would ever change props, leaving an empty canvas and no explanation
+    this.renderGraph();
   }
 
   componentWillUnmount() {
@@ -45,27 +51,55 @@ class GraphCanvas extends React.Component {
       graphIsDirty = true;
     }
 
-    if (prevProps.paused && !this.props.paused) {
+    // a new op mode run starts the history over
+    if (this.props.runId !== prevProps.runId) {
       this.graph.reset();
+      this.reportBounds();
+      graphIsDirty = true;
     }
 
-    if (!this.props.paused && !isEqual(this.props.data, prevProps.data)) {
+    // samples are recorded even while paused so that the full history remains
+    // available for scrubbing
+    if (!isEqual(this.props.data, prevProps.data)) {
       this.graph.add(Date.now(), this.props.data);
+      this.reportBounds();
+      graphIsDirty = true;
     }
+
+    if (prevProps.paused && !this.props.paused) {
+      // pick playback back up at the newest sample rather than replaying the
+      // stretch of telemetry time that elapsed while paused
+      this.graph.resync(Date.now());
+    }
+
+    if (this.props.scrubMs !== prevProps.scrubMs) graphIsDirty = true;
 
     if (!this.props.paused && !this.requestId) graphIsDirty = true;
 
     if (graphIsDirty) this.renderGraph();
   }
 
+  // the parent needs the extent of the history to drive the scrub slider
+  reportBounds() {
+    if (!this.props.onTimeBounds) return;
+
+    const bounds = this.graph.getTimeBounds();
+    if (isEqual(bounds, this.reportedBounds)) return;
+
+    this.reportedBounds = bounds;
+    this.props.onTimeBounds(bounds);
+  }
+
   renderGraph() {
+    const time = this.props.paused ? this.props.pausedTime : Date.now();
+
+    this.setState(() => ({
+      graphEmpty: !this.graph.render(time, this.props.scrubMs),
+    }));
+
     if (this.props.paused) {
       this.requestId = 0;
     } else {
-      this.setState(() => ({
-        graphEmpty: !this.graph.render(Date.now()),
-      }));
-
       this.requestId = requestAnimationFrame(this.renderGraph);
     }
   }
@@ -80,7 +114,7 @@ class GraphCanvas extends React.Component {
             ref={this.canvasRef}
             onResize={() => {
               if (this.graph && this.props.paused)
-                this.graph.render(this.props.pausedTime);
+                this.graph.render(this.props.pausedTime, this.props.scrubMs);
             }}
           />
         </div>
@@ -94,11 +128,21 @@ class GraphCanvas extends React.Component {
   }
 }
 
+GraphCanvas.defaultProps = {
+  scrubMs: null,
+  runId: 0,
+};
+
 GraphCanvas.propTypes = {
   data: PropTypes.arrayOf(PropTypes.any).isRequired,
   options: PropTypes.object.isRequired,
   paused: PropTypes.bool.isRequired,
   pausedTime: PropTypes.number.isRequired,
+  // telemetry time shown at the right edge, or null to follow live data
+  scrubMs: PropTypes.number,
+  // changes to reset the recorded history (new op mode run)
+  runId: PropTypes.number,
+  onTimeBounds: PropTypes.func,
 };
 
 export default GraphCanvas;
