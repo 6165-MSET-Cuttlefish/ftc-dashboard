@@ -18,7 +18,6 @@ import com.acmerobotics.dashboard.config.ValueProvider;
 import com.acmerobotics.dashboard.config.reflection.ReflectionConfig;
 import com.acmerobotics.dashboard.config.variable.CustomVariable;
 import com.acmerobotics.dashboard.limelight.LimelightProxyManager;
-import com.acmerobotics.dashboard.OpModeInfo;
 import com.acmerobotics.dashboard.message.Message;
 import com.acmerobotics.dashboard.message.redux.DeleteHardwareConfig;
 import com.acmerobotics.dashboard.message.redux.InitOpMode;
@@ -33,6 +32,7 @@ import com.acmerobotics.dashboard.message.redux.WriteHardwareConfig;
 import com.acmerobotics.dashboard.telemetry.TelemetryPacket;
 import com.qualcomm.ftccommon.FtcEventLoop;
 import com.qualcomm.ftccommon.configuration.RobotConfigFile;
+import com.qualcomm.ftccommon.configuration.RobotConfigFileManager;
 import com.qualcomm.hardware.limelightvision.Limelight3A;
 import com.qualcomm.hardware.lynx.LynxModule;
 import com.qualcomm.robotcore.eventloop.opmode.Disabled;
@@ -48,7 +48,6 @@ import com.qualcomm.robotcore.util.RobotLog;
 import com.qualcomm.robotcore.util.ThreadPool;
 import com.qualcomm.robotcore.util.WebHandlerManager;
 import com.qualcomm.robotcore.util.WebServer;
-import com.qualcomm.ftccommon.configuration.RobotConfigFileManager;
 import dalvik.system.DexFile;
 import fi.iki.elonen.NanoHTTPD;
 import fi.iki.elonen.NanoWSD;
@@ -58,8 +57,8 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.StringWriter;
 import java.io.InputStreamReader;
+import java.io.StringWriter;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
@@ -100,9 +99,7 @@ import org.xmlpull.v1.XmlPullParserException;
 import org.xmlpull.v1.XmlPullParserFactory;
 import org.xmlpull.v1.XmlSerializer;
 
-/**
- * Main class for interacting with the instance.
- */
+/** Main class for interacting with the instance. */
 public class FtcDashboard implements OpModeManagerImpl.Notifications {
     private static final String TAG = "FtcDashboard";
 
@@ -125,16 +122,12 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
         }
     }
 
-    /**
-     * Call before start to suppress the enable/disable op mode.
-     */
+    /** Call before start to suppress the enable/disable op mode. */
     public static void suppressOpMode() {
         suppressOpMode = true;
     }
 
-    /**
-     * Starts the dashboard.
-     */
+    /** Starts the dashboard. */
     @OnCreate
     public static void start(Context context) {
         if (instance == null) {
@@ -142,9 +135,7 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
         }
     }
 
-    /**
-     * Attaches a web server for accessing the dashboard through the phone (like OBJ/Blocks).
-     */
+    /** Attaches a web server for accessing the dashboard through the phone (like OBJ/Blocks). */
     @WebHandlerRegistrar
     public static void attachWebServer(Context context, WebHandlerManager manager) {
         if (instance != null) {
@@ -152,9 +143,7 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
         }
     }
 
-    /**
-     * Attaches the event loop to the instance for op mode management.
-     */
+    /** Attaches the event loop to the instance for op mode management. */
     @OnCreateEventLoop
     public static void attachEventLoop(Context context, FtcEventLoop eventLoop) {
         if (instance != null) {
@@ -174,13 +163,11 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
         }
     }
 
-    /**
-     * Stops the instance and the underlying WebSocket server.
-     */
+    /** Stops the instance and the underlying WebSocket server. */
     @OnDestroy
     public static void stop(Context context) {
         if (!FtcRobotControllerWatchdogService.isLaunchActivity(
-            AppUtil.getInstance().getRootActivity())) {
+                AppUtil.getInstance().getRootActivity())) {
             // prevent premature stop when the app is launched via hardware attachment
             return;
         }
@@ -201,18 +188,23 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
     }
 
     /**
+     * Returns whether the dashboard is active.
+     *
      * @return a boolean indicating if the dashboard is currently active
      */
-    public boolean isEnabled() { return core.enabled; }
+    public boolean isEnabled() {
+        return core.enabled;
+    }
 
     private DashboardCore core = new DashboardCore();
 
-    private NanoWSD server = new NanoWSD(8000) {
-        @Override
-        protected NanoWSD.WebSocket openWebSocket(NanoHTTPD.IHTTPSession handshake) {
-            return new DashWebSocket(handshake);
-        }
-    };
+    private NanoWSD server =
+            new NanoWSD(8000) {
+                @Override
+                protected NanoWSD.WebSocket openWebSocket(NanoHTTPD.IHTTPSession handshake) {
+                    return new DashWebSocket(handshake);
+                }
+            };
 
     private SharedPreferences prefs;
     private final List<MenuItem> enableMenuItems;
@@ -244,7 +236,8 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
     private LinearLayout parentLayout;
 
     private RobotConfigFileManager hardwareConfigManager = new RobotConfigFileManager();
-    private final Mutex<SortedMap<String, RobotConfigFile>> hardwareConfigList = new Mutex<>(new TreeMap<>());
+    private final Mutex<SortedMap<String, RobotConfigFile>> hardwareConfigList =
+            new Mutex<>(new TreeMap<>());
 
     private final LimelightProxyManager limelightProxyManager = new LimelightProxyManager();
 
@@ -262,14 +255,15 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
                     if (lastGamepadTimestamp == 0) {
                         Thread.sleep(GAMEPAD_WATCHDOG_INTERVAL);
                     } else if ((timestamp - lastGamepadTimestamp) > GAMEPAD_WATCHDOG_INTERVAL) {
-                        activeOpMode.with(o -> {
-                            o.opMode.gamepad1.copy(new Gamepad());
-                            o.opMode.gamepad2.copy(new Gamepad());
-                        });
+                        activeOpMode.with(
+                                o -> {
+                                    o.opMode.gamepad1.copy(new Gamepad());
+                                    o.opMode.gamepad2.copy(new Gamepad());
+                                });
                         lastGamepadTimestamp = 0;
                     } else {
-                        Thread.sleep(GAMEPAD_WATCHDOG_INTERVAL
-                            - (timestamp - lastGamepadTimestamp));
+                        Thread.sleep(
+                                GAMEPAD_WATCHDOG_INTERVAL - (timestamp - lastGamepadTimestamp));
                     }
                 } catch (InterruptedException e) {
                     break;
@@ -284,28 +278,30 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
             RegisteredOpModes.getInstance().waitOpModesRegistered();
 
             List<OpModeInfo> infoList = new ArrayList<>();
-            
+
             for (OpModeMeta opModeMeta : RegisteredOpModes.getInstance().getOpModes()) {
                 if (opModeMeta.flavor != OpModeMeta.Flavor.SYSTEM) {
                     infoList.add(new OpModeInfo(opModeMeta.name, opModeMeta.group));
                 }
             }
-            
+
             // Sort op mode info list by group, then by name
-            infoList.sort((a, b) -> {
-                int groupComparison = a.getGroup().compareToIgnoreCase(b.getGroup());
-                if (groupComparison != 0) {
-                    return groupComparison;
-                }
-                return a.getName().compareToIgnoreCase(b.getName());
-            });
-            
+            infoList.sort(
+                    (a, b) -> {
+                        int groupComparison = a.getGroup().compareToIgnoreCase(b.getGroup());
+                        if (groupComparison != 0) {
+                            return groupComparison;
+                        }
+                        return a.getName().compareToIgnoreCase(b.getName());
+                    });
+
             // Update the shared opModeInfoList
-            opModeInfoList.with(infoListShared -> {
-                infoListShared.clear();
-                infoListShared.addAll(infoList);
-            });
-            
+            opModeInfoList.with(
+                    infoListShared -> {
+                        infoListShared.clear();
+                        infoListShared.addAll(infoList);
+                    });
+
             sendAll(new ReceiveOpModeList(infoList));
         }
     }
@@ -313,38 +309,53 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
     private class ListHardwareConfigsRunnable implements Runnable {
         @Override
         public void run() {
-            hardwareConfigList.with(l -> {
-                l.clear();
-                for (RobotConfigFile file : hardwareConfigManager.getXMLFiles()) {
-                    l.put(file.getName(), file);
-                }
-                List<HardwareConfig> hardwareConfigs = new ArrayList<>();
+            hardwareConfigList.with(
+                    l -> {
+                        l.clear();
+                        for (RobotConfigFile file : hardwareConfigManager.getXMLFiles()) {
+                            l.put(file.getName(), file);
+                        }
+                        List<HardwareConfig> hardwareConfigs = new ArrayList<>();
 
-                for (RobotConfigFile value : l.values()) {
-                    try {
-                        String name = value.getName();
-                        String xmlContent = xmlPullParserToString(value.getXml());
-                        boolean readOnly = value.isReadOnly();
+                        for (RobotConfigFile value : l.values()) {
+                            try {
+                                String name = value.getName();
+                                String xmlContent = xmlPullParserToString(value.getXml());
+                                boolean readOnly = value.isReadOnly();
 
-                        hardwareConfigs.add(new HardwareConfig(name, xmlContent, readOnly));
+                                hardwareConfigs.add(new HardwareConfig(name, xmlContent, readOnly));
 
-                        RobotLog.e("Hardware Config " + name + " and is read only? " + value.isReadOnly());
-                        RobotLog.e("Hardware Config " + name + " filepath: " + value.getFullPath());
-                    } catch (java.io.FileNotFoundException | XmlPullParserException e) {
-                        RobotLog.ee(TAG, "Failed to read hardware config: " + value.getName(), e);
-                    }
-                }
+                                RobotLog.e(
+                                        "Hardware Config "
+                                                + name
+                                                + " and is read only? "
+                                                + value.isReadOnly());
+                                RobotLog.e(
+                                        "Hardware Config "
+                                                + name
+                                                + " filepath: "
+                                                + value.getFullPath());
+                            } catch (java.io.FileNotFoundException | XmlPullParserException e) {
+                                RobotLog.ee(
+                                        TAG,
+                                        "Failed to read hardware config: " + value.getName(),
+                                        e);
+                            }
+                        }
 
-                sendAll(new ReceiveHardwareConfigList(
-                        hardwareConfigs,
-                        hardwareConfigManager.getActiveConfig().getName()
-                ));
-            });
+                        sendAll(
+                                new ReceiveHardwareConfigList(
+                                        hardwareConfigs,
+                                        hardwareConfigManager.getActiveConfig().getName()));
+                    });
         }
     }
 
     public void deleteRobotConfigFile(String name) {
-        File targetConfig = new File(AppUtil.CONFIG_FILES_DIR.getAbsolutePath(), RobotConfigFileManager.withExtension(name));
+        File targetConfig =
+                new File(
+                        AppUtil.CONFIG_FILES_DIR.getAbsolutePath(),
+                        RobotConfigFileManager.withExtension(name));
 
         if (targetConfig.exists()) {
             if (targetConfig.delete()) {
@@ -372,8 +383,7 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
                             serializer.attribute(
                                     parser.getAttributeNamespace(i),
                                     parser.getAttributeName(i),
-                                    parser.getAttributeValue(i)
-                            );
+                                    parser.getAttributeValue(i));
                         }
                         break;
 
@@ -383,6 +393,9 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
 
                     case XmlPullParser.END_TAG:
                         serializer.endTag(parser.getNamespace(), parser.getName());
+                        break;
+
+                    default:
                         break;
                 }
                 eventType = parser.next();
@@ -405,16 +418,16 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
         public void run() {
             Process logcatProcess = null;
             BufferedReader reader = null;
-            
+
             try {
                 // Start logcat process filtering for OpModeManager tag
                 ProcessBuilder pb = new ProcessBuilder("logcat", "-s", OPMODE_MANAGER_TAG + ":*");
                 logcatProcess = pb.start();
                 reader = new BufferedReader(new InputStreamReader(logcatProcess.getInputStream()));
-                
+
                 String line;
                 List<ReceiveLogcatErrors.LogcatError> errorBuffer = new ArrayList<>();
-                
+
                 while (running && (line = reader.readLine()) != null) {
                     try {
                         // Parse logcat line format: timestamp PID TID level tag: message
@@ -422,7 +435,7 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
                         ReceiveLogcatErrors.LogcatError error = parseLogcatLine(line);
                         if (error != null) {
                             errorBuffer.add(error);
-                            
+
                             // Send errors in batches to avoid flooding
                             if (errorBuffer.size() >= 10) {
                                 sendAll(new ReceiveLogcatErrors(new ArrayList<>(errorBuffer)));
@@ -433,7 +446,7 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
                         // Log parsing error but continue monitoring
                         RobotLog.ww(TAG, "Failed to parse logcat line: " + line);
                     }
-                    
+
                     // Small delay to prevent excessive CPU usage
                     try {
                         Thread.sleep(50);
@@ -442,12 +455,12 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
                         break;
                     }
                 }
-                
+
                 // Send any remaining errors
                 if (!errorBuffer.isEmpty()) {
                     sendAll(new ReceiveLogcatErrors(errorBuffer));
                 }
-                
+
             } catch (IOException e) {
                 RobotLog.ww(TAG, "Failed to start logcat monitoring: " + e.getMessage());
             } finally {
@@ -463,49 +476,45 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
                 }
             }
         }
-        
+
         private ReceiveLogcatErrors.LogcatError parseLogcatLine(String line) {
             try {
                 // Skip empty or invalid lines
                 if (line == null || line.trim().isEmpty()) {
                     return null;
                 }
-                
+
                 // Look for log level indicators (E, W, I, D, V)
                 String[] parts = line.split("\\s+", 6);
                 if (parts.length < 6) {
                     return null;
                 }
-                
+
                 // Extract components: timestamp, level, tag, message
                 String level = parts[4]; // Log level (E, W, I, etc.)
                 String tagAndMessage = parts[5];
-                
+
                 // Split tag and message at the colon
                 int colonIndex = tagAndMessage.indexOf(':');
                 if (colonIndex == -1) {
                     return null;
                 }
-                
+
                 String tag = tagAndMessage.substring(0, colonIndex).trim();
                 String message = tagAndMessage.substring(colonIndex + 1).trim();
-                
+
                 // Only process OpModeManager messages
                 if (!OPMODE_MANAGER_TAG.equals(tag)) {
                     return null;
                 }
-                
+
                 return new ReceiveLogcatErrors.LogcatError(
-                    System.currentTimeMillis(),
-                    level,
-                    tag,
-                    message
-                );
+                        System.currentTimeMillis(), level, tag, message);
             } catch (Exception e) {
                 return null;
             }
         }
-        
+
         public void stop() {
             running = false;
         }
@@ -635,9 +644,7 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
         }
 
         @Override
-        public void setItemSeparator(String itemSeparator) {
-
-        }
+        public void setItemSeparator(String itemSeparator) {}
 
         @Override
         public String getCaptionValueSeparator() {
@@ -645,14 +652,10 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
         }
 
         @Override
-        public void setCaptionValueSeparator(String captionValueSeparator) {
-
-        }
+        public void setCaptionValueSeparator(String captionValueSeparator) {}
 
         @Override
-        public void setDisplayFormat(DisplayFormat displayFormat) {
-
-        }
+        public void setDisplayFormat(DisplayFormat displayFormat) {}
 
         @Override
         public Log log() {
@@ -673,9 +676,7 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
         }
 
         @Override
-        public void setCapacity(int capacity) {
-
-        }
+        public void setCapacity(int capacity) {}
 
         @Override
         public DisplayOrder getDisplayOrder() {
@@ -683,9 +684,7 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
         }
 
         @Override
-        public void setDisplayOrder(DisplayOrder displayOrder) {
-
-        }
+        public void setDisplayOrder(DisplayOrder displayOrder) {}
 
         @Override
         public void add(String entry) {
@@ -730,13 +729,18 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
                     }
 
                     final CountDownLatch latch = new CountDownLatch(1);
-                    source.getFrameBitmap(Continuation.createTrivial(new Consumer<Bitmap>() {
-                        @Override
-                        public void accept(Bitmap value) {
-                            sendAll(new ReceiveImage(bitmapToJpegString(value, imageQuality)));
-                            latch.countDown();
-                        }
-                    }));
+                    source.getFrameBitmap(
+                            Continuation.createTrivial(
+                                    new Consumer<Bitmap>() {
+                                        @Override
+                                        public void accept(Bitmap value) {
+                                            sendAll(
+                                                    new ReceiveImage(
+                                                            bitmapToJpegString(
+                                                                    value, imageQuality)));
+                                            latch.countDown();
+                                        }
+                                    }));
 
                     latch.await();
 
@@ -744,8 +748,8 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
                         continue;
                     }
 
-                    long sleepTime = (long) (1000 / maxFps
-                        - (System.currentTimeMillis() - timestamp));
+                    long sleepTime =
+                            (long) (1000 / maxFps - (System.currentTimeMillis() - timestamp));
                     Thread.sleep(Math.max(sleepTime, 0));
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
@@ -768,13 +772,17 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
         }
 
         /**
+         * Establishes the camera connection.
+         *
          * @return true if the connection has been successfully established
          */
         private boolean initialize() {
             try {
-                this.limelightConnection = (HttpURLConnection) new URL("http://" + ipAddress + ":5802").openConnection();
+                this.limelightConnection =
+                        (HttpURLConnection)
+                                new URL("http://" + ipAddress + ":5802").openConnection();
                 limelightConnection.connect();
-                if (limelightConnection.getResponseCode() != 200) {
+                if (limelightConnection.getResponseCode() != HttpURLConnection.HTTP_OK) {
                     throw new RuntimeException();
                 }
                 byteStream = new BufferedInputStream(limelightConnection.getInputStream());
@@ -792,7 +800,8 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
             while (!Thread.currentThread().isInterrupted()) {
                 try {
                     if (core.clientCount() == 0) {
-                        if (limelightConnection != null) { // Close connection to avoid backlog of frames
+                        if (limelightConnection
+                                != null) { // Close connection to avoid backlog of frames
                             reset();
                         }
                         Thread.sleep(250);
@@ -800,8 +809,11 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
                     }
 
                     if (limelightConnection == null) {
-                        if (failureCount > 3) { // Something is very broken, this isn't going to work
-                            RobotLog.ee(TAG, "Limelight camera stream repeatedly failing; ending stream.");
+                        if (failureCount
+                                > 3) { // Something is very broken, this isn't going to work
+                            RobotLog.ee(
+                                    TAG,
+                                    "Limelight camera stream repeatedly failing; ending stream.");
                             return;
                         }
                         if (!initialize()) {
@@ -846,14 +858,19 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
                     readLine(byteStream);
                     String contentLength = readLine(byteStream); // Get the Content-Length header.
                     String num = contentLength.replaceAll("[^0-9]", ""); // Filter to the integer
-                    int length = Integer.parseInt(num);
+                    final int length = Integer.parseInt(num);
                     readLine(byteStream);
                     readLine(byteStream); // Go to start of binary
 
                     byteStream.mark(2);
-                    if(byteStream.read() != 0xFF || byteStream.read() != 0xD8) { // All JPEGs start with FFD8; quick sanity-check
-                        RobotLog.ee(TAG, "Invalid/Unexpected Limelight JPEG data (failed at start); restarting stream");
-                        // Can't just continue because it will parse binary data as headers next loop
+                    if (byteStream.read() != 0xFF
+                            || byteStream.read()
+                                    != 0xD8) { // All JPEGs start with FFD8; quick sanity-check
+                        RobotLog.ee(
+                                TAG,
+                                "Invalid/Unexpected Limelight JPEG data (failed at start); restarting stream");
+                        // Can't just continue because it will parse binary data as headers next
+                        // loop
                         // Instead, we'll live with the dropped frames and just restart the stream
                         failureCount++;
                         reset();
@@ -864,14 +881,20 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
                     // Get image data
                     byte[] out = new byte[length];
                     int sum = 0;
-                    while (sum < length){ // Read known image length into array
-                        sum += byteStream.read(out, sum, length - sum); // read will read a maximum of 8192 bytes
+                    while (sum < length) { // Read known image length into array
+                        sum +=
+                                byteStream.read(
+                                        out,
+                                        sum,
+                                        length - sum); // read will read a maximum of 8192 bytes
                         // I love that that fact isn't documented
                     }
 
                     // All JPEGs end with 0xFF and 0xD9; sanity check.
                     if (out[length - 2] != (byte) 0xFF || out[length - 1] != (byte) 0xD9) {
-                        RobotLog.ee(TAG, "Invalid/Unexpected Limelight JPEG data (failed at end); restarting stream.");
+                        RobotLog.ee(
+                                TAG,
+                                "Invalid/Unexpected Limelight JPEG data (failed at end); restarting stream.");
                         failureCount++;
                         reset();
                         continue;
@@ -897,26 +920,28 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
 
         private String readLine(InputStream stream) throws IOException {
             ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-            while(true) { // Read until \n
+            while (true) { // Read until \n
                 int raw = stream.read();
-                if (raw == -1) break; // End of stream
+                if (raw == -1) {
+                    break; // End of stream
+                }
                 byte chr = (byte) raw;
-                if (chr == '\n') break; // End of line
-                if (chr != '\r') buffer.write(chr);
+                if (chr == '\n') {
+                    break; // End of line
+                }
+                if (chr != '\r') {
+                    buffer.write(chr);
+                }
             }
 
             return buffer.toString(Charset.defaultCharset().name());
         }
     }
 
-    private static final Set<String> IGNORED_PACKAGES = new HashSet<>(Arrays.asList(
-        "java",
-        "android",
-        "com.sun",
-        "com.vuforia",
-        "com.google",
-        "kotlin"
-    ));
+    private static final Set<String> IGNORED_PACKAGES =
+            new HashSet<>(
+                    Arrays.asList(
+                            "java", "android", "com.sun", "com.vuforia", "com.google", "kotlin"));
 
     private static void addConfigClasses(CustomVariable customVariable) {
         ClassLoader classLoader = FtcDashboard.class.getClassLoader();
@@ -944,7 +969,7 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
                     Class<?> configClass = Class.forName(className, false, classLoader);
 
                     if (!configClass.isAnnotationPresent(Config.class)
-                        || configClass.isAnnotationPresent(Disabled.class)) {
+                            || configClass.isAnnotationPresent(Disabled.class)) {
                         continue;
                     }
 
@@ -954,8 +979,8 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
                         name = altName;
                     }
 
-                    customVariable.putVariable(name,
-                        ReflectionConfig.createVariableFromClass(configClass));
+                    customVariable.putVariable(
+                            name, ReflectionConfig.createVariableFromClass(configClass));
                 } catch (ClassNotFoundException | NoClassDefFoundError ignored) {
                     // dash is unable to access many classes and reporting every instance
                     // only clutters the logs
@@ -970,22 +995,34 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
         // Soft-restart to allow the new config to take effect
         // This is admittedly pretty sketchy so we'll do it in a try/catch
         try {
-            // We can't just cast this to FtcRobotControllerActivity because that would create a dependency
+            // We can't just cast this to FtcRobotControllerActivity because that would create a
+            // dependency
             Activity robotControllerActivity = AppUtil.getInstance().getRootActivity();
             // When called, this method has the ability to perform a restart
-            Method selectedMethod = robotControllerActivity.getClass().getMethod("onOptionsItemSelected", MenuItem.class);
+            Method selectedMethod =
+                    robotControllerActivity
+                            .getClass()
+                            .getMethod("onOptionsItemSelected", MenuItem.class);
 
-            int id = robotControllerActivity.getResources().getIdentifier("action_restart_robot", "id", "com.qualcomm.ftcrobotcontroller");
+            int id =
+                    robotControllerActivity
+                            .getResources()
+                            .getIdentifier(
+                                    "action_restart_robot",
+                                    "id",
+                                    "com.qualcomm.ftcrobotcontroller");
 
             // Spoofs the MenuItem parameter to imitate a restart button-press
-            MenuItem item = (MenuItem) Proxy.newProxyInstance(
-                    MenuItem.class.getClassLoader(),
-                    new Class<?>[] { MenuItem.class },
-                    (proxy, method, args) -> "getItemId".equals(method.getName()) ? id : null
-            );
+            MenuItem item =
+                    (MenuItem)
+                            Proxy.newProxyInstance(
+                                    MenuItem.class.getClassLoader(),
+                                    new Class<?>[] {MenuItem.class},
+                                    (proxy, method, args) ->
+                                            "getItemId".equals(method.getName()) ? id : null);
 
             selectedMethod.invoke(robotControllerActivity, item);
-        } catch (Exception e){
+        } catch (Exception e) {
             RobotLog.ww(TAG, "Something went wrong when reflecting to restart the robot.");
         }
     }
@@ -1013,39 +1050,46 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
         protected void onOpen() {
             sh.onOpen();
 
-            opModeInfoList.with(infoList -> {
-                if (!infoList.isEmpty()) {
-                    send(new ReceiveOpModeList(new ArrayList<>(infoList)));
-                }
-            });
-
-            hardwareConfigList.with(l -> {
-                if (!l.isEmpty()){
-                    List<HardwareConfig> hardwareConfigs = new ArrayList<>();
-
-                    for (RobotConfigFile value : l.values()) {
-                        try {
-                            String xmlContent = xmlPullParserToString(value.getXml());
-                            boolean readOnly = value.isReadOnly();
-
-                            hardwareConfigs.add(new HardwareConfig(value.getName(), xmlContent, readOnly));
-                        } catch (java.io.FileNotFoundException | XmlPullParserException e) {
-                            RobotLog.ee(TAG, "Failed to read hardware config: " + value.getName(), e);
+            opModeInfoList.with(
+                    infoList -> {
+                        if (!infoList.isEmpty()) {
+                            send(new ReceiveOpModeList(new ArrayList<>(infoList)));
                         }
-                    }
-                    send(new ReceiveHardwareConfigList(
-                            hardwareConfigs,
-                            hardwareConfigManager.getActiveConfig().getName()
-                    ));
-                }
-            });
+                    });
+
+            hardwareConfigList.with(
+                    l -> {
+                        if (!l.isEmpty()) {
+                            List<HardwareConfig> hardwareConfigs = new ArrayList<>();
+
+                            for (RobotConfigFile value : l.values()) {
+                                try {
+                                    String xmlContent = xmlPullParserToString(value.getXml());
+                                    boolean readOnly = value.isReadOnly();
+
+                                    hardwareConfigs.add(
+                                            new HardwareConfig(
+                                                    value.getName(), xmlContent, readOnly));
+                                } catch (java.io.FileNotFoundException | XmlPullParserException e) {
+                                    RobotLog.ee(
+                                            TAG,
+                                            "Failed to read hardware config: " + value.getName(),
+                                            e);
+                                }
+                            }
+                            send(
+                                    new ReceiveHardwareConfigList(
+                                            hardwareConfigs,
+                                            hardwareConfigManager.getActiveConfig().getName()));
+                        }
+                    });
 
             updateStatusView();
         }
 
         @Override
-        protected void onClose(NanoWSD.WebSocketFrame.CloseCode code, String reason,
-                               boolean initiatedByRemote) {
+        protected void onClose(
+                NanoWSD.WebSocketFrame.CloseCode code, String reason, boolean initiatedByRemote) {
             sh.onClose();
 
             updateStatusView();
@@ -1061,123 +1105,162 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
             }
 
             switch (msg.getType()) {
-                case GET_ROBOT_STATUS: {
-                    send(new ReceiveRobotStatus(getRobotStatus()));
-                    break;
-                }
-                case INIT_OP_MODE: {
-                    String opModeName = ((InitOpMode) msg).getOpModeName();
-                    opModeManager.initOpMode(opModeName);
-                    break;
-                }
-                case START_OP_MODE: {
-                    opModeManager.startActiveOpMode();
-                    break;
-                }
-                case STOP_OP_MODE: {
-                    eventLoop.requestOpModeStop(opModeManager.getActiveOpMode());
-                    break;
-                }
-                case RECEIVE_GAMEPAD_STATE: {
-                    ReceiveGamepadState castMsg = (ReceiveGamepadState) msg;
-                    updateGamepads(castMsg.getGamepad1(), castMsg.getGamepad2());
-                    break;
-                }
-                case SET_HARDWARE_CONFIG: {
-                    String hardwareConfigName = ((SetHardwareConfig) msg).getHardwareConfigName();
+                case GET_ROBOT_STATUS:
+                    {
+                        send(new ReceiveRobotStatus(getRobotStatus()));
+                        break;
+                    }
+                case INIT_OP_MODE:
+                    {
+                        String opModeName = ((InitOpMode) msg).getOpModeName();
+                        opModeManager.initOpMode(opModeName);
+                        break;
+                    }
+                case START_OP_MODE:
+                    {
+                        opModeManager.startActiveOpMode();
+                        break;
+                    }
+                case STOP_OP_MODE:
+                    {
+                        eventLoop.requestOpModeStop(opModeManager.getActiveOpMode());
+                        break;
+                    }
+                case RECEIVE_GAMEPAD_STATE:
+                    {
+                        ReceiveGamepadState castMsg = (ReceiveGamepadState) msg;
+                        updateGamepads(castMsg.getGamepad1(), castMsg.getGamepad2());
+                        break;
+                    }
+                case SET_HARDWARE_CONFIG:
+                    {
+                        String hardwareConfigName =
+                                ((SetHardwareConfig) msg).getHardwareConfigName();
 
-                    activeOpMode.with(o -> {
-                        // Don't allow changing the config unless stopped. Who knows what undefined behavior that would cause
-                       if(o.status != RobotStatus.OpModeStatus.STOPPED &&
-                               !opModeManager.getActiveOpModeName().equals(OpModeManager.DEFAULT_OP_MODE_NAME)) {
-                           return;
-                       }
+                        activeOpMode.with(
+                                o -> {
+                                    // Don't allow changing the config unless stopped. Who knows
+                                    // what undefined behavior that would cause
+                                    if (o.status != RobotStatus.OpModeStatus.STOPPED
+                                            && !opModeManager
+                                                    .getActiveOpModeName()
+                                                    .equals(OpModeManager.DEFAULT_OP_MODE_NAME)) {
+                                        return;
+                                    }
 
-                       hardwareConfigList.with(l -> {
-                           hardwareConfigManager.setActiveConfig(false, l.get(hardwareConfigName));
-                       });
+                                    hardwareConfigList.with(
+                                            l -> {
+                                                hardwareConfigManager.setActiveConfig(
+                                                        false, l.get(hardwareConfigName));
+                                            });
 
-                        attemptRestart();
-                    });
-                    break;
-                }
-                case WRITE_HARDWARE_CONFIG: {
-                    String hardwareConfigName = ((WriteHardwareConfig) msg).getHardwareConfigName();
-                    String hardwareConfigContents = ((WriteHardwareConfig) msg).getHardwareConfigContents();
-                    activeOpMode.with(o -> {
-                        // Don't allow changing the config unless stopped. Who knows what undefined behavior that would cause
-                        if(o.status != RobotStatus.OpModeStatus.STOPPED &&
-                                !opModeManager.getActiveOpModeName().equals(OpModeManager.DEFAULT_OP_MODE_NAME)) {
-                            return;
-                        }
+                                    attemptRestart();
+                                });
+                        break;
+                    }
+                case WRITE_HARDWARE_CONFIG:
+                    {
+                        String hardwareConfigName =
+                                ((WriteHardwareConfig) msg).getHardwareConfigName();
+                        String hardwareConfigContents =
+                                ((WriteHardwareConfig) msg).getHardwareConfigContents();
+                        activeOpMode.with(
+                                o -> {
+                                    // Don't allow changing the config unless stopped. Who knows
+                                    // what undefined behavior that would cause
+                                    if (o.status != RobotStatus.OpModeStatus.STOPPED
+                                            && !opModeManager
+                                                    .getActiveOpModeName()
+                                                    .equals(OpModeManager.DEFAULT_OP_MODE_NAME)) {
+                                        return;
+                                    }
 
-                        // Write hardware config
-                        try {
-                            hardwareConfigManager.writeToFile(new RobotConfigFile(hardwareConfigManager, hardwareConfigName), false, hardwareConfigContents);
-                        } catch (RobotCoreException | IOException e) {
-                            Log.w(TAG, "Error writing hardware config: " + hardwareConfigName, e);
-                        }
+                                    // Write hardware config
+                                    try {
+                                        hardwareConfigManager.writeToFile(
+                                                new RobotConfigFile(
+                                                        hardwareConfigManager, hardwareConfigName),
+                                                false,
+                                                hardwareConfigContents);
+                                    } catch (RobotCoreException | IOException e) {
+                                        Log.w(
+                                                TAG,
+                                                "Error writing hardware config: "
+                                                        + hardwareConfigName,
+                                                e);
+                                    }
 
-                        // Update the hardware config list
-                        new ListHardwareConfigsRunnable().run();
+                                    // Update the hardware config list
+                                    new ListHardwareConfigsRunnable().run();
 
-                        // Set active config to new config
-                        hardwareConfigList.with(l -> {
-                            hardwareConfigManager.setActiveConfig(false, l.get(hardwareConfigName));
-                        });
+                                    // Set active config to new config
+                                    hardwareConfigList.with(
+                                            l -> {
+                                                hardwareConfigManager.setActiveConfig(
+                                                        false, l.get(hardwareConfigName));
+                                            });
 
-                        attemptRestart();
-                    });
-                    break;
-                }
-                case DELETE_HARDWARE_CONFIG: {
-                    String hardwareConfigName = ((DeleteHardwareConfig) msg).getHardwareConfigName();
-                    activeOpMode.with(o -> {
-                        // Don't allow deleting the config unless stopped. Who knows what undefined behavior that would cause
-                        if(o.status != RobotStatus.OpModeStatus.STOPPED &&
-                                !opModeManager.getActiveOpModeName().equals(OpModeManager.DEFAULT_OP_MODE_NAME)) {
-                            return;
-                        }
+                                    attemptRestart();
+                                });
+                        break;
+                    }
+                case DELETE_HARDWARE_CONFIG:
+                    {
+                        String hardwareConfigName =
+                                ((DeleteHardwareConfig) msg).getHardwareConfigName();
+                        activeOpMode.with(
+                                o -> {
+                                    // Don't allow deleting the config unless stopped. Who knows
+                                    // what undefined behavior that would cause
+                                    if (o.status != RobotStatus.OpModeStatus.STOPPED
+                                            && !opModeManager
+                                                    .getActiveOpModeName()
+                                                    .equals(OpModeManager.DEFAULT_OP_MODE_NAME)) {
+                                        return;
+                                    }
 
-                        deleteRobotConfigFile(hardwareConfigName);
+                                    deleteRobotConfigFile(hardwareConfigName);
 
-                        hardwareConfigList.with(l -> {
-                            l.remove(hardwareConfigName);
-                            if (hardwareConfigManager.getActiveConfig().getName().equals(hardwareConfigName)) {
-                                hardwareConfigManager.setActiveConfig(false, null);
-                            }
-                        });
+                                    hardwareConfigList.with(
+                                            l -> {
+                                                l.remove(hardwareConfigName);
+                                                if (hardwareConfigManager
+                                                        .getActiveConfig()
+                                                        .getName()
+                                                        .equals(hardwareConfigName)) {
+                                                    hardwareConfigManager.setActiveConfig(
+                                                            false, null);
+                                                }
+                                            });
 
-                        attemptRestart();
-                    });
-                    break;
-                }
-                default: {
-                    Log.w(TAG, "Received unknown message of type " + msg.getType());
-                    Log.w(TAG, msg.toString());
-                    break;
-                }
+                                    attemptRestart();
+                                });
+                        break;
+                    }
+                default:
+                    {
+                        Log.w(TAG, "Received unknown message of type " + msg.getType());
+                        Log.w(TAG, msg.toString());
+                        break;
+                    }
             }
         }
 
         @Override
-        protected void onPong(NanoWSD.WebSocketFrame pong) {
-
-        }
+        protected void onPong(NanoWSD.WebSocketFrame pong) {}
 
         @Override
-        protected void onException(IOException exception) {
-
-        }
+        protected void onException(IOException exception) {}
     }
 
     private FtcDashboard() {
-        core.withConfigRoot(new CustomVariableConsumer() {
-            @Override
-            public void accept(CustomVariable configRoot) {
-                addConfigClasses(configRoot);
-            }
-        });
+        core.withConfigRoot(
+                new CustomVariableConsumer() {
+                    @Override
+                    public void accept(CustomVariable configRoot) {
+                        addConfigClasses(configRoot);
+                    }
+                });
 
         try {
             server.start();
@@ -1202,9 +1285,7 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
     }
 
     private void setAutoEnable(boolean autoEnable) {
-        prefs.edit()
-            .putBoolean(PREFS_AUTO_ENABLE_KEY, autoEnable)
-            .apply();
+        prefs.edit().putBoolean(PREFS_AUTO_ENABLE_KEY, autoEnable).apply();
     }
 
     private void enable() {
@@ -1264,22 +1345,26 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
         connectionStatusTextView.setTypeface(Typeface.DEFAULT_BOLD);
         int color = activity.getResources().getColor(R.color.dashboardColor);
         connectionStatusTextView.setTextColor(color);
-        int horizontalMarginId = activity.getResources().getIdentifier(
-            "activity_horizontal_margin", "dimen", activity.getPackageName());
+        int horizontalMarginId =
+                activity.getResources()
+                        .getIdentifier(
+                                "activity_horizontal_margin", "dimen", activity.getPackageName());
         int horizontalMargin = (int) activity.getResources().getDimension(horizontalMarginId);
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT,
-            LinearLayout.LayoutParams.WRAP_CONTENT
-        );
+        LinearLayout.LayoutParams params =
+                new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT);
         params.setMargins(horizontalMargin, 0, horizontalMargin, 0);
         connectionStatusTextView.setLayoutParams(params);
 
-        int parentLayoutId = activity.getResources().getIdentifier(
-            "entire_screen", "id", activity.getPackageName());
+        int parentLayoutId =
+                activity.getResources()
+                        .getIdentifier("entire_screen", "id", activity.getPackageName());
         parentLayout = activity.findViewById(parentLayoutId);
         int childCount = parentLayout.getChildCount();
-        int relativeLayoutId = activity.getResources().getIdentifier(
-            "RelativeLayout", "id", activity.getPackageName());
+        int relativeLayoutId =
+                activity.getResources()
+                        .getIdentifier("RelativeLayout", "id", activity.getPackageName());
         int i;
         for (i = 0; i < childCount; i++) {
             if (parentLayout.getChildAt(i).getId() == relativeLayoutId) {
@@ -1287,54 +1372,63 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
             }
         }
         final int relativeLayoutIndex = i;
-        AppUtil.getInstance().runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                parentLayout.addView(connectionStatusTextView, relativeLayoutIndex);
-            }
-        });
+        AppUtil.getInstance()
+                .runOnUiThread(
+                        new Runnable() {
+                            @Override
+                            public void run() {
+                                parentLayout.addView(connectionStatusTextView, relativeLayoutIndex);
+                            }
+                        });
 
         updateStatusView();
     }
 
     private void removeStatusView() {
         if (parentLayout != null && connectionStatusTextView != null) {
-            AppUtil.getInstance().runOnUiThread(new Runnable() {
-                @Override
-                public void run() {
-                    parentLayout.removeView(connectionStatusTextView);
-                }
-            });
+            AppUtil.getInstance()
+                    .runOnUiThread(
+                            new Runnable() {
+                                @Override
+                                public void run() {
+                                    parentLayout.removeView(connectionStatusTextView);
+                                }
+                            });
         }
     }
 
     private void updateStatusView() {
         if (connectionStatusTextView != null) {
-            AppUtil.getInstance().runOnUiThread(new Runnable() {
-                @SuppressLint("SetTextI18n")
-                @Override
-                public void run() {
-                    if (!core.enabled) {
-                        connectionStatusTextView.setText("Dashboard: disabled");
-                        return;
-                    }
+            AppUtil.getInstance()
+                    .runOnUiThread(
+                            new Runnable() {
+                                @SuppressLint("SetTextI18n")
+                                @Override
+                                public void run() {
+                                    if (!core.enabled) {
+                                        connectionStatusTextView.setText("Dashboard: disabled");
+                                        return;
+                                    }
 
-                    String serverStatus = webServerAttached ? "server attached" : "server detached";
+                                    String serverStatus =
+                                            webServerAttached
+                                                    ? "server attached"
+                                                    : "server detached";
 
-                    String connStatus;
-                    int connections = core.clientCount();
-                    if (connections == 0) {
-                        connStatus = "no connections";
-                    } else if (connections == 1) {
-                        connStatus = "1 connection";
-                    } else {
-                        connStatus = connections + " connections";
-                    }
+                                    String connStatus;
+                                    int connections = core.clientCount();
+                                    if (connections == 0) {
+                                        connStatus = "no connections";
+                                    } else if (connections == 1) {
+                                        connStatus = "1 connection";
+                                    } else {
+                                        connStatus = connections + " connections";
+                                    }
 
-                    connectionStatusTextView.setText(
-                        "Dashboard: " + serverStatus + ", " + connStatus);
-                }
-            });
+                                    connectionStatusTextView.setText(
+                                            "Dashboard: " + serverStatus + ", " + connStatus);
+                                }
+                            });
         }
     }
 
@@ -1342,21 +1436,21 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
         return new WebHandler() {
             @Override
             public NanoHTTPD.Response getResponse(NanoHTTPD.IHTTPSession session)
-                throws IOException {
+                    throws IOException {
                 if (session.getMethod() == NanoHTTPD.Method.GET) {
                     String mimeType = MimeTypesUtil.determineMimeType(file);
-                    return NanoHTTPD.newChunkedResponse(NanoHTTPD.Response.Status.OK,
-                        mimeType, assetManager.open(file));
+                    return NanoHTTPD.newChunkedResponse(
+                            NanoHTTPD.Response.Status.OK, mimeType, assetManager.open(file));
                 } else {
-                    return NanoHTTPD.newFixedLengthResponse(NanoHTTPD.Response.Status.NOT_FOUND,
-                        NanoHTTPD.MIME_PLAINTEXT, "");
+                    return NanoHTTPD.newFixedLengthResponse(
+                            NanoHTTPD.Response.Status.NOT_FOUND, NanoHTTPD.MIME_PLAINTEXT, "");
                 }
             }
         };
     }
 
-    private void addAssetWebHandlers(WebHandlerManager webHandlerManager,
-                                     AssetManager assetManager, String path) {
+    private void addAssetWebHandlers(
+            WebHandlerManager webHandlerManager, AssetManager assetManager, String path) {
         try {
             String[] list = assetManager.list(path);
 
@@ -1369,8 +1463,7 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
                     addAssetWebHandlers(webHandlerManager, assetManager, path + "/" + file);
                 }
             } else {
-                webHandlerManager.register("/" + path,
-                    newStaticAssetHandler(assetManager, path));
+                webHandlerManager.register("/" + path, newStaticAssetHandler(assetManager, path));
             }
         } catch (IOException e) {
             Log.w(TAG, e);
@@ -1390,10 +1483,9 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
 
         WebHandlerManager webHandlerManager = webServer.getWebHandlerManager();
         AssetManager assetManager = activity.getAssets();
-        webHandlerManager.register("/dash",
-            newStaticAssetHandler(assetManager, "dash/index.html"));
-        webHandlerManager.register("/dash/",
-            newStaticAssetHandler(assetManager, "dash/index.html"));
+        webHandlerManager.register("/dash", newStaticAssetHandler(assetManager, "dash/index.html"));
+        webHandlerManager.register(
+                "/dash/", newStaticAssetHandler(assetManager, "dash/index.html"));
         addAssetWebHandlers(webHandlerManager, assetManager, "dash");
 
         addAssetWebHandlers(webHandlerManager, assetManager, "images");
@@ -1419,7 +1511,8 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
         Thread t = new Thread(new ListOpModesRunnable());
         t.start();
 
-        // This gets called every time the robot soft-restarts, which includes when modifying/switching configs
+        // This gets called every time the robot soft-restarts, which includes when
+        // modifying/switching configs
         Thread hardwareConfigThread = new Thread(new ListHardwareConfigsRunnable());
         hardwareConfigThread.start();
     }
@@ -1439,78 +1532,83 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
             disableMenuItems.add(disable);
         }
 
-        enable.setOnMenuItemClickListener(new MenuItem.OnMenuItemClickListener() {
-            @Override
-            public boolean onMenuItemClick(MenuItem item) {
-                enable();
+        enable.setOnMenuItemClickListener(
+                new MenuItem.OnMenuItemClickListener() {
+                    @Override
+                    public boolean onMenuItemClick(MenuItem item) {
+                        enable();
 
-                synchronized (enableMenuItems) {
-                    for (MenuItem menuItem : enableMenuItems) {
-                        menuItem.setVisible(false);
+                        synchronized (enableMenuItems) {
+                            for (MenuItem menuItem : enableMenuItems) {
+                                menuItem.setVisible(false);
+                            }
+                        }
+
+                        synchronized (disableMenuItems) {
+                            for (MenuItem menuItem : disableMenuItems) {
+                                menuItem.setVisible(true);
+                            }
+                        }
+
+                        return true;
                     }
-                }
+                });
 
-                synchronized (disableMenuItems) {
-                    for (MenuItem menuItem : disableMenuItems) {
-                        menuItem.setVisible(true);
+        disable.setOnMenuItemClickListener(
+                new MenuItem.OnMenuItemClickListener() {
+                    @Override
+                    public boolean onMenuItemClick(MenuItem item) {
+                        disable();
+
+                        synchronized (enableMenuItems) {
+                            for (MenuItem menuItem : enableMenuItems) {
+                                menuItem.setVisible(true);
+                            }
+                        }
+
+                        synchronized (disableMenuItems) {
+                            for (MenuItem menuItem : disableMenuItems) {
+                                menuItem.setVisible(false);
+                            }
+                        }
+
+                        return true;
                     }
-                }
-
-                return true;
-            }
-        });
-
-        disable.setOnMenuItemClickListener(new MenuItem.OnMenuItemClickListener() {
-            @Override
-            public boolean onMenuItemClick(MenuItem item) {
-                disable();
-
-                synchronized (enableMenuItems) {
-                    for (MenuItem menuItem : enableMenuItems) {
-                        menuItem.setVisible(true);
-                    }
-                }
-
-                synchronized (disableMenuItems) {
-                    for (MenuItem menuItem : disableMenuItems) {
-                        menuItem.setVisible(false);
-                    }
-                }
-
-                return true;
-            }
-        });
+                });
     }
 
     private void internalRegisterOpMode(OpModeManager manager) {
         manager.register(
-            new OpModeMeta.Builder()
-                .setName("Enable/Disable Dashboard")
-                .setFlavor(OpModeMeta.Flavor.TELEOP)
-                .setGroup("Dashboard")
-                .build(),
-            new LinearOpMode() {
-                @Override
-                public void runOpMode() throws InterruptedException {
-                    telemetry.log().add(
-                        Misc.formatInvariant("Dashboard is currently %s. Press Start to %s it.",
-                            core.enabled ? "enabled" : "disabled",
-                            core.enabled ? "disable" : "enable"));
-                    telemetry.update();
+                new OpModeMeta.Builder()
+                        .setName("Enable/Disable Dashboard")
+                        .setFlavor(OpModeMeta.Flavor.TELEOP)
+                        .setGroup("Dashboard")
+                        .build(),
+                new LinearOpMode() {
+                    @Override
+                    public void runOpMode() throws InterruptedException {
+                        telemetry
+                                .log()
+                                .add(
+                                        Misc.formatInvariant(
+                                                "Dashboard is currently %s. Press Start to %s it.",
+                                                core.enabled ? "enabled" : "disabled",
+                                                core.enabled ? "disable" : "enable"));
+                        telemetry.update();
 
-                    waitForStart();
+                        waitForStart();
 
-                    if (isStopRequested()) {
-                        return;
+                        if (isStopRequested()) {
+                            return;
+                        }
+
+                        if (core.enabled) {
+                            disable();
+                        } else {
+                            enable();
+                        }
                     }
-
-                    if (core.enabled) {
-                        disable();
-                    } else {
-                        enable();
-                    }
-                }
-            });
+                });
     }
 
     /**
@@ -1525,9 +1623,7 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
         core.sendTelemetryPacket(telemetryPacket);
     }
 
-    /**
-     * Clears telemetry data from all clients.
-     */
+    /** Clears telemetry data from all clients. */
     public void clearTelemetry() {
         core.clearTelemetry();
     }
@@ -1541,9 +1637,7 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
         return telemetry;
     }
 
-    /**
-     * Returns the telemetry transmission interval in milliseconds.
-     */
+    /** Returns the telemetry transmission interval in milliseconds. */
     public int getTelemetryTransmissionInterval() {
         return core.getTelemetryTransmissionInterval();
     }
@@ -1557,9 +1651,7 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
         core.setTelemetryTransmissionInterval(newTransmissionInterval);
     }
 
-    /**
-     * Sends updated configuration data to all instance clients.
-     */
+    /** Sends updated configuration data to all instance clients. */
     public void updateConfig() {
         core.updateConfig();
     }
@@ -1579,34 +1671,35 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
     /**
      * Runs {@code function} with the hardware subtree of the configuration root.
      *
-     * <p>If the top-level hardware category ("{@value #HARDWARE_CATEGORY}") does not
-     * yet exist it will be created. The provided {@link CustomVariableConsumer} is
-     * invoked while holding the same exclusive config-root lock used by
-     * {@link #withConfigRoot(CustomVariableConsumer)}, so callers may safely modify the
-     * hardware config tree inside the consumer. Do not leak references to the
-     * config tree outside the consumer.</p>
+     * <p>If the top-level hardware category ("{@value #HARDWARE_CATEGORY}") does not yet exist it
+     * will be created. The provided {@link CustomVariableConsumer} is invoked while holding the
+     * same exclusive config-root lock used by {@link #withConfigRoot(CustomVariableConsumer)}, so
+     * callers may safely modify the hardware config tree inside the consumer. Do not leak
+     * references to the config tree outside the consumer.
      *
-     * @param function consumer that receives the {@link CustomVariable} representing the
-     *                 hardware category and may modify it as needed
+     * @param function consumer that receives the {@link CustomVariable} representing the hardware
+     *     category and may modify it as needed
      */
     public void withHardwareRoot(CustomVariableConsumer function) {
-        withConfigRoot(root -> {
-            CustomVariable hardwareVar = (CustomVariable) root.getVariable(HARDWARE_CATEGORY);
-            if (hardwareVar == null) {
-                hardwareVar = new CustomVariable();
-                root.putVariable(HARDWARE_CATEGORY, hardwareVar);
-            }
-            function.accept(hardwareVar);
-        });
+        withConfigRoot(
+                root -> {
+                    CustomVariable hardwareVar =
+                            (CustomVariable) root.getVariable(HARDWARE_CATEGORY);
+                    if (hardwareVar == null) {
+                        hardwareVar = new CustomVariable();
+                        root.putVariable(HARDWARE_CATEGORY, hardwareVar);
+                    }
+                    function.accept(hardwareVar);
+                });
     }
 
     /**
      * Add config variable with custom provider that is automatically removed when op mode ends.
      *
      * @param category top-level category
-     * @param name     variable name
+     * @param name variable name
      * @param provider getter/setter for the variable
-     * @param <T>      variable type
+     * @param <T> variable type
      */
     public <T> void addConfigVariable(String category, String name, ValueProvider<T> provider) {
         core.addConfigVariable(category, name, provider);
@@ -1615,32 +1708,35 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
     /**
      * Add config variable with custom provider.
      *
-     * @param category   top-level category
-     * @param name       variable name
-     * @param provider   getter/setter for the variable
+     * @param category top-level category
+     * @param name variable name
+     * @param provider getter/setter for the variable
      * @param autoRemove if true, the variable is removed on op mode termination
-     * @param <T>        variable type
+     * @param <T> variable type
      */
-    public <T> void addConfigVariable(final String category, final String name,
-                                      final ValueProvider<T> provider,
-                                      final boolean autoRemove) {
-        withConfigRoot(new CustomVariableConsumer() {
-            @Override
-            public void accept(CustomVariable configRoot) {
-                core.addConfigVariable(category, name, provider);
+    public <T> void addConfigVariable(
+            final String category,
+            final String name,
+            final ValueProvider<T> provider,
+            final boolean autoRemove) {
+        withConfigRoot(
+                new CustomVariableConsumer() {
+                    @Override
+                    public void accept(CustomVariable configRoot) {
+                        core.addConfigVariable(category, name, provider);
 
-                if (autoRemove) {
-                    varsToRemove.add(new String[] {category, name});
-                }
-            }
-        });
+                        if (autoRemove) {
+                            varsToRemove.add(new String[] {category, name});
+                        }
+                    }
+                });
     }
 
     /**
      * Remove a config variable.
      *
      * @param category top-level category
-     * @param name     variable name
+     * @param name variable name
      */
     public void removeConfigVariable(String category, String name) {
         core.removeConfigVariable(category, name);
@@ -1680,16 +1776,6 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
     }
 
     /**
-     * Stops the camera frame stream.
-     */
-    public void stopCameraStream() {
-        if (cameraStreamExecutor != null) {
-            cameraStreamExecutor.shutdownNow();
-            cameraStreamExecutor = null;
-        }
-    }
-
-    /**
      * Sends a stream of camera frames from a Limelight3A camera at a regular interval.
      *
      * @param limelight the Limelight object
@@ -1713,27 +1799,37 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
         stopCameraStream();
 
         cameraStreamExecutor = ThreadPool.newSingleThreadExecutor("camera stream");
-        cameraStreamExecutor.submit(new LimelightCameraStreamRunnable(address.getHostAddress(), maxFps));
+        cameraStreamExecutor.submit(
+                new LimelightCameraStreamRunnable(address.getHostAddress(), maxFps));
+    }
+
+    /** Stops the camera frame stream. */
+    public void stopCameraStream() {
+        if (cameraStreamExecutor != null) {
+            cameraStreamExecutor.shutdownNow();
+            cameraStreamExecutor = null;
+        }
     }
 
     /**
-     * Returns the image quality used by {@link #sendImage(Bitmap)} and
-     * {@link #startCameraStream(CameraStreamSource, double)}.
+     * Returns the image quality used by {@link #sendImage(Bitmap)} and {@link
+     * #startCameraStream(CameraStreamSource, double)}.
      */
     public int getImageQuality() {
         return imageQuality;
     }
 
     /**
-     * Sets the image quality used by {@link #sendImage(Bitmap)} and
-     * {@link #startCameraStream(CameraStreamSource, double)}.
+     * Sets the image quality used by {@link #sendImage(Bitmap)} and {@link
+     * #startCameraStream(CameraStreamSource, double)}.
      */
     public void setImageQuality(int quality) {
         imageQuality = quality;
     }
 
     public static void copyIntoSdkGamepad(ReceiveGamepadState.Gamepad src, Gamepad dst) {
-        // We need to copy from an intermediate so the SDK can handle the rising/falling edge detection
+        // We need to copy from an intermediate so the SDK can handle the rising/falling edge
+        // detection
         // Also, doing it like this means the SDK handles equivalencies between
         // standard and Playstation buttons (i.e. converting A -> Cross and vice versa)
         Gamepad intermediate = new Gamepad();
@@ -1769,47 +1865,53 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
         dst.copy(intermediate);
     }
 
-    private void updateGamepads(ReceiveGamepadState.Gamepad gamepad1,
-                                ReceiveGamepadState.Gamepad gamepad2) {
-        activeOpMode.with(o -> {
-            // for now, the dashboard only overrides synthetic gamepads
-            if (o.status == RobotStatus.OpModeStatus.STOPPED) {
-                return;
-            }
+    private void updateGamepads(
+            ReceiveGamepadState.Gamepad gamepad1, ReceiveGamepadState.Gamepad gamepad2) {
+        activeOpMode.with(
+                o -> {
+                    // for now, the dashboard only overrides synthetic gamepads
+                    if (o.status == RobotStatus.OpModeStatus.STOPPED) {
+                        return;
+                    }
 
-            if (o.opMode.gamepad1.getGamepadId() != Gamepad.ID_UNASSOCIATED
-                || o.opMode.gamepad2.getGamepadId() != Gamepad.ID_UNASSOCIATED) {
-                return;
-            }
+                    if (o.opMode.gamepad1.getGamepadId() != Gamepad.ID_UNASSOCIATED
+                            || o.opMode.gamepad2.getGamepadId() != Gamepad.ID_UNASSOCIATED) {
+                        return;
+                    }
 
-            copyIntoSdkGamepad(gamepad1, o.opMode.gamepad1);
-            copyIntoSdkGamepad(gamepad2, o.opMode.gamepad2);
-            lastGamepadTimestamp = System.currentTimeMillis();
-        });
+                    copyIntoSdkGamepad(gamepad1, o.opMode.gamepad1);
+                    copyIntoSdkGamepad(gamepad2, o.opMode.gamepad2);
+                    lastGamepadTimestamp = System.currentTimeMillis();
+                });
     }
 
     private RobotStatus getRobotStatus() {
         if (opModeManager == null) {
-            return new RobotStatus(core.enabled, false, "", RobotStatus.OpModeStatus.STOPPED, "",
-                "", -1.0);
+            return new RobotStatus(
+                    core.enabled, false, "", RobotStatus.OpModeStatus.STOPPED, "", "", -1.0);
         } else {
-            return activeOpMode.with(o -> {
-                double batteryVoltage = -1.0;
-                if (o.opMode.hardwareMap != null) {
-                    for (LynxModule m : o.opMode.hardwareMap.getAll(LynxModule.class)) {
-                        batteryVoltage =
-                            Math.max(batteryVoltage, m.getInputVoltage(VoltageUnit.VOLTS));
-                    }
-                }
+            return activeOpMode.with(
+                    o -> {
+                        double batteryVoltage = -1.0;
+                        if (o.opMode.hardwareMap != null) {
+                            for (LynxModule m : o.opMode.hardwareMap.getAll(LynxModule.class)) {
+                                batteryVoltage =
+                                        Math.max(
+                                                batteryVoltage,
+                                                m.getInputVoltage(VoltageUnit.VOLTS));
+                            }
+                        }
 
-                return new RobotStatus(
-                    core.enabled, true, opModeManager.getActiveOpModeName(),
-                    // status is an enum so it's okay to return a copy here.
-                    o.status,
-                    RobotLog.getGlobalWarningMessage().message, RobotLog.getGlobalErrorMsg(),
-                    batteryVoltage
-                );
-            });
+                        return new RobotStatus(
+                                core.enabled,
+                                true,
+                                opModeManager.getActiveOpModeName(),
+                                // status is an enum so it's okay to return a copy here.
+                                o.status,
+                                RobotLog.getGlobalWarningMessage().message,
+                                RobotLog.getGlobalErrorMsg(),
+                                batteryVoltage);
+                    });
         }
     }
 
@@ -1830,10 +1932,11 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
 
     @Override
     public void onOpModePreInit(OpMode opMode) {
-        activeOpMode.with(o -> {
-            o.opMode = opMode;
-            o.status = RobotStatus.OpModeStatus.INIT;
-        });
+        activeOpMode.with(
+                o -> {
+                    o.opMode = opMode;
+                    o.status = RobotStatus.OpModeStatus.INIT;
+                });
 
         if (!(opMode instanceof OpModeManagerImpl.DefaultOpMode)) {
             clearTelemetry();
@@ -1842,41 +1945,46 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
 
     @Override
     public void onOpModePreStart(OpMode opMode) {
-        activeOpMode.with(o -> {
-            o.opMode = opMode;
-            o.status = RobotStatus.OpModeStatus.RUNNING;
-        });
+        activeOpMode.with(
+                o -> {
+                    o.opMode = opMode;
+                    o.status = RobotStatus.OpModeStatus.RUNNING;
+                });
     }
 
     @Override
     public void onOpModePostStop(OpMode opMode) {
-        activeOpMode.with(o -> {
-            o.opMode = opMode;
-            o.status = RobotStatus.OpModeStatus.STOPPED;
-        });
+        activeOpMode.with(
+                o -> {
+                    o.opMode = opMode;
+                    o.status = RobotStatus.OpModeStatus.STOPPED;
+                });
 
         // this callback is sometimes called from the UI thread
         (new Thread() {
-            @Override
-            public void run() {
-                withConfigRoot(new CustomVariableConsumer() {
                     @Override
-                    public void accept(CustomVariable configRoot) {
-                        for (String[] var : varsToRemove) {
-                            String category = var[0];
-                            String name = var[1];
-                            CustomVariable catVar =
-                                (CustomVariable) configRoot.getVariable(category);
-                            catVar.removeVariable(name);
-                            if (catVar.size() == 0) {
-                                configRoot.removeVariable(category);
-                            }
-                        }
-                        varsToRemove.clear();
+                    public void run() {
+                        withConfigRoot(
+                                new CustomVariableConsumer() {
+                                    @Override
+                                    public void accept(CustomVariable configRoot) {
+                                        for (String[] var : varsToRemove) {
+                                            String category = var[0];
+                                            String name = var[1];
+                                            CustomVariable catVar =
+                                                    (CustomVariable)
+                                                            configRoot.getVariable(category);
+                                            catVar.removeVariable(name);
+                                            if (catVar.size() == 0) {
+                                                configRoot.removeVariable(category);
+                                            }
+                                        }
+                                        varsToRemove.clear();
+                                    }
+                                });
                     }
-                });
-            }
-        }).start();
+                })
+                .start();
 
         stopCameraStream();
     }

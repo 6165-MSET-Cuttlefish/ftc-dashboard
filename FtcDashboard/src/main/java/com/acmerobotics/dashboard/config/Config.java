@@ -16,8 +16,6 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.RUNTIME)
 @Target(ElementType.TYPE)
 public @interface Config {
-    /**
-     * Name of this block of configuration variables. Defaults to the class's simple name.
-     */
+    /** Name of this block of configuration variables. Defaults to the class's simple name. */
     String value() default "";
 }

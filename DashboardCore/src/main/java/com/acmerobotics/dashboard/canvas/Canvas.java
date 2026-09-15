@@ -25,8 +25,8 @@ public class Canvas {
         return this;
     }
 
-    public Canvas strokeText(String text, double x, double y, String font, double theta,
-                             boolean usePageFrame) {
+    public Canvas strokeText(
+            String text, double x, double y, String font, double theta, boolean usePageFrame) {
         ops.add(new Text(text, x, y, font, theta, true, usePageFrame));
         return this;
     }
@@ -36,8 +36,8 @@ public class Canvas {
         return this;
     }
 
-    public Canvas fillText(String text, double x, double y, String font, double theta,
-                           boolean usePageFrame) {
+    public Canvas fillText(
+            String text, double x, double y, String font, double theta, boolean usePageFrame) {
         ops.add(new Text(text, x, y, font, theta, false, usePageFrame));
         return this;
     }
@@ -78,20 +78,33 @@ public class Canvas {
     }
 
     public Canvas fillRect(double x, double y, double width, double height) {
-        fillPolygon(new double[] {x, x + width, x + width, x},
-            new double[] {y, y, y + height, y + height});
+        fillPolygon(
+                new double[] {x, x + width, x + width, x},
+                new double[] {y, y, y + height, y + height});
         return this;
     }
 
     public Canvas strokeRect(double x, double y, double width, double height) {
-        strokePolygon(new double[] {x, x + width, x + width, x},
-            new double[] {y, y, y + height, y + height});
+        strokePolygon(
+                new double[] {x, x + width, x + width, x},
+                new double[] {y, y, y + height, y + height});
         return this;
     }
 
     @Deprecated
-    public Canvas strokeSpline(double ax, double bx, double cx, double dx, double ex, double fx,
-                               double ay, double by, double cy, double dy, double ey, double fy) {
+    public Canvas strokeSpline(
+            double ax,
+            double bx,
+            double cx,
+            double dx,
+            double ex,
+            double fx,
+            double ay,
+            double by,
+            double cy,
+            double dy,
+            double ey,
+            double fy) {
         ops.add(new Spline(ax, bx, cx, dx, ex, fx, ay, by, cy, dy, ey, fy));
         return this;
     }
@@ -120,29 +133,53 @@ public class Canvas {
         return this;
     }
 
-    public Canvas drawImage(String path, double x, double y, double width, double height,
-                            double theta, double pivotX, double pivotY, boolean usePageFrame) {
+    public Canvas drawImage(
+            String path,
+            double x,
+            double y,
+            double width,
+            double height,
+            double theta,
+            double pivotX,
+            double pivotY,
+            boolean usePageFrame) {
         ops.add(new Image(path, x, y, width, height, theta, pivotX, pivotY, usePageFrame));
         return this;
     }
 
-    public Canvas drawGrid(double x, double y, double width, double height, int numTicksX,
-                           int numTicksY) {
+    public Canvas drawGrid(
+            double x, double y, double width, double height, int numTicksX, int numTicksY) {
         drawGrid(x, y, width, height, numTicksX, numTicksY, 0, 0, 0, true);
         return this;
     }
 
-    public Canvas drawGrid(double x, double y, double width, double height, int numTicksX,
-                           int numTicksY, double theta, double pivotX, double pivotY,
-                           boolean usePageFrame) {
-        ops.add(new Grid(x, y, width, height, numTicksX, numTicksY, theta, pivotX, pivotY,
-            usePageFrame));
+    public Canvas drawGrid(
+            double x,
+            double y,
+            double width,
+            double height,
+            int numTicksX,
+            int numTicksY,
+            double theta,
+            double pivotX,
+            double pivotY,
+            boolean usePageFrame) {
+        ops.add(
+                new Grid(
+                        x,
+                        y,
+                        width,
+                        height,
+                        numTicksX,
+                        numTicksY,
+                        theta,
+                        pivotX,
+                        pivotY,
+                        usePageFrame));
         return this;
     }
 
-    /**
-     * Set the global alpha for subsequent operations.
-     */
+    /** Set the global alpha for subsequent operations. */
     public Canvas setAlpha(double alpha) {
         ops.add(new Alpha(alpha));
         return this;

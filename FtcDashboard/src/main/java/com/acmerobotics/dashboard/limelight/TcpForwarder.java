@@ -1,7 +1,6 @@
 package com.acmerobotics.dashboard.limelight;
 
 import com.qualcomm.robotcore.util.RobotLog;
-
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -10,12 +9,12 @@ import java.net.Socket;
 import java.net.SocketException;
 
 /**
- * Bidirectional TCP forwarder.  Every connection accepted on {@code listenPort}
- * is paired with a new connection to {@code targetHost:targetPort} and bytes
- * are shuttled in both directions until either side closes.
- * <p>
- * This is used to make the Limelight's WebSocket (port 5805) reachable from
- * the browser through the Control Hub.
+ * Bidirectional TCP forwarder. Every connection accepted on {@code listenPort} is paired with a new
+ * connection to {@code targetHost:targetPort} and bytes are shuttled in both directions until
+ * either side closes.
+ *
+ * <p>This is used to make the Limelight's WebSocket (port 5805) reachable from the browser through
+ * the Control Hub.
  */
 class TcpForwarder {
     private static final String TAG = "FtcDashboard";
@@ -35,7 +34,9 @@ class TcpForwarder {
     }
 
     synchronized void open() {
-        if (alive) return;
+        if (alive) {
+            return;
+        }
         alive = true;
 
         acceptThread = new Thread(() -> acceptLoop(), "TcpFwd-" + listenPort);
@@ -44,12 +45,18 @@ class TcpForwarder {
     }
 
     synchronized void close() {
-        if (!alive) return;
+        if (!alive) {
+            return;
+        }
         alive = false;
 
         try {
-            if (serverSocket != null) serverSocket.close();
-        } catch (IOException ignored) { }
+            if (serverSocket != null) {
+                serverSocket.close();
+            }
+        } catch (IOException ignored) {
+            // Closing an already-closed server is harmless.
+        }
 
         if (acceptThread != null) {
             acceptThread.interrupt();
@@ -70,22 +77,23 @@ class TcpForwarder {
                 t.start();
             }
         } catch (SocketException e) {
-            if (alive) RobotLog.ww(TAG, "accept error on :%d: %s", listenPort, e.getMessage());
+            if (alive) {
+                RobotLog.ww(TAG, "accept error on :%d: %s", listenPort, e.getMessage());
+            }
         } catch (IOException e) {
             RobotLog.ee(TAG, "server socket error on :%d: %s", listenPort, e.getMessage());
         }
     }
 
-    /**
-     * Connects to the target and copies bytes in both directions until either
-     * side disconnects.
-     */
+    /** Connects to the target and copies bytes in both directions until either side disconnects. */
     private void bridge(Socket client) {
         try (Socket remote = new Socket(targetHost, targetPort)) {
-            Thread toRemote = copyAsync(client.getInputStream(), remote.getOutputStream(),
-                    "c→r:" + listenPort);
-            Thread toClient = copyAsync(remote.getInputStream(), client.getOutputStream(),
-                    "r→c:" + listenPort);
+            Thread toRemote =
+                    copyAsync(
+                            client.getInputStream(), remote.getOutputStream(), "c→r:" + listenPort);
+            Thread toClient =
+                    copyAsync(
+                            remote.getInputStream(), client.getOutputStream(), "r→c:" + listenPort);
 
             // Wait for either direction to finish (= connection closed by one side)
             toRemote.join();
@@ -93,21 +101,30 @@ class TcpForwarder {
         } catch (IOException | InterruptedException e) {
             // Typical when one side drops the connection – no action needed.
         } finally {
-            try { client.close(); } catch (IOException ignored) { }
+            try {
+                client.close();
+            } catch (IOException ignored) {
+                // The connection is already unusable.
+            }
         }
     }
 
     private static Thread copyAsync(InputStream in, OutputStream out, String name) {
-        Thread t = new Thread(() -> {
-            byte[] buf = new byte[8192];
-            try {
-                int n;
-                while ((n = in.read(buf)) >= 0) {
-                    out.write(buf, 0, n);
-                    out.flush();
-                }
-            } catch (IOException ignored) { }
-        }, name);
+        Thread t =
+                new Thread(
+                        () -> {
+                            byte[] buf = new byte[8192];
+                            try {
+                                int n;
+                                while ((n = in.read(buf)) >= 0) {
+                                    out.write(buf, 0, n);
+                                    out.flush();
+                                }
+                            } catch (IOException ignored) {
+                                // Either endpoint closed the connection.
+                            }
+                        },
+                        name);
         t.setDaemon(true);
         t.start();
         return t;

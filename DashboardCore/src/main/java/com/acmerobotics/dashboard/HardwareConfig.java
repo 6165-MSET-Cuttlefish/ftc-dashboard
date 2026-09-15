@@ -11,7 +11,15 @@ public class HardwareConfig {
         this.readOnly = readOnly;
     }
 
-    public String getName() { return name; }
-    public String getXmlContent() { return xmlContent; }
-    public boolean isReadOnly() { return readOnly; }
+    public String getName() {
+        return name;
+    }
+
+    public String getXmlContent() {
+        return xmlContent;
+    }
+
+    public boolean isReadOnly() {
+        return readOnly;
+    }
 }

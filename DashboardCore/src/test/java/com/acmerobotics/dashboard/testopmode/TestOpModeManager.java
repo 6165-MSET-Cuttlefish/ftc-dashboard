@@ -9,10 +9,10 @@ import java.util.List;
 
 public class TestOpModeManager {
     private final List<TestOpMode> testOpModes =
-        Arrays.asList(
-            new TestSineWaveOpMode(),
-            new TestFieldVersatilityOpMode(),
-            new TestTelemetryOpMode());
+            Arrays.asList(
+                    new TestSineWaveOpMode(),
+                    new TestFieldVersatilityOpMode(),
+                    new TestTelemetryOpMode());
     private TestOpMode activeOpMode = null;
 
     SendFun sendFun;
