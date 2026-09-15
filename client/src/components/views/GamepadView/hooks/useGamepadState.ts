@@ -30,8 +30,12 @@ const createInitialGamepadState = (): GamepadState => ({
 
 export const useGamepadState = () => {
   const dispatch = useDispatch<AppThunkDispatch>();
-  const [gamepad1State, setGamepad1State] = useState<GamepadState>(createInitialGamepadState());
-  const [gamepad2State, setGamepad2State] = useState<GamepadState>(createInitialGamepadState());
+  const [gamepad1State, setGamepad1State] = useState<GamepadState>(
+    createInitialGamepadState(),
+  );
+  const [gamepad2State, setGamepad2State] = useState<GamepadState>(
+    createInitialGamepadState(),
+  );
 
   // Use refs to track the latest state for the interval
   const gamepad1StateRef = useRef(gamepad1State);
@@ -40,29 +44,44 @@ export const useGamepadState = () => {
   // Send state every 100ms to keep the RC watchdog alive
   useEffect(() => {
     const intervalId = setInterval(() => {
-      dispatch(sendGamepadState(gamepad1StateRef.current, gamepad2StateRef.current));
+      dispatch(
+        sendGamepadState(gamepad1StateRef.current, gamepad2StateRef.current),
+      );
     }, 100);
 
     return () => clearInterval(intervalId);
   }, [dispatch]);
 
-  const updateGamepadState = useCallback((gamepadNum: 1 | 2, newState: Partial<GamepadState>) => {
-    if (gamepadNum === 1) {
-      setGamepad1State(prev => {
-        const updatedState = { ...prev, ...newState };
-        gamepad1StateRef.current = updatedState;
-        return updatedState;
-      });
-      dispatch(sendGamepadState({ ...gamepad1StateRef.current, ...newState }, gamepad2StateRef.current));
-    } else {
-      setGamepad2State(prev => {
-        const updatedState = { ...prev, ...newState };
-        gamepad2StateRef.current = updatedState;
-        return updatedState;
-      });
-      dispatch(sendGamepadState(gamepad1StateRef.current, { ...gamepad2StateRef.current, ...newState }));
-    }
-  }, [dispatch]);
+  const updateGamepadState = useCallback(
+    (gamepadNum: 1 | 2, newState: Partial<GamepadState>) => {
+      if (gamepadNum === 1) {
+        setGamepad1State((prev) => {
+          const updatedState = { ...prev, ...newState };
+          gamepad1StateRef.current = updatedState;
+          return updatedState;
+        });
+        dispatch(
+          sendGamepadState(
+            { ...gamepad1StateRef.current, ...newState },
+            gamepad2StateRef.current,
+          ),
+        );
+      } else {
+        setGamepad2State((prev) => {
+          const updatedState = { ...prev, ...newState };
+          gamepad2StateRef.current = updatedState;
+          return updatedState;
+        });
+        dispatch(
+          sendGamepadState(gamepad1StateRef.current, {
+            ...gamepad2StateRef.current,
+            ...newState,
+          }),
+        );
+      }
+    },
+    [dispatch],
+  );
 
   return {
     gamepad1State,
@@ -75,20 +94,29 @@ export const createButtonToggleHandler = (
   gamepadState: GamepadState,
   gamepadNum: 1 | 2,
   buttonKey: keyof GamepadState,
-  updateGamepadState: (gamepadNum: 1 | 2, newState: Partial<GamepadState>) => void,
+  updateGamepadState: (
+    gamepadNum: 1 | 2,
+    newState: Partial<GamepadState>,
+  ) => void,
 ) => {
   return () => {
     const currentValue = gamepadState[buttonKey];
-    const newValue = typeof currentValue === 'number'
-      ? (currentValue > 0 ? 0 : 1)
-      : !currentValue;
+    const newValue =
+      typeof currentValue === 'number'
+        ? currentValue > 0
+          ? 0
+          : 1
+        : !currentValue;
     updateGamepadState(gamepadNum, { [buttonKey]: newValue });
   };
 };
 
 export const resetGamepad = (
   gamepadNum: 1 | 2,
-  updateGamepadState: (gamepadNum: 1 | 2, newState: Partial<GamepadState>) => void,
+  updateGamepadState: (
+    gamepadNum: 1 | 2,
+    newState: Partial<GamepadState>,
+  ) => void,
 ) => {
   const neutralState = createInitialGamepadState();
   updateGamepadState(gamepadNum, neutralState);

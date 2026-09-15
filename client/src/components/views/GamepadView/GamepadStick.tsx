@@ -23,13 +23,13 @@ interface GamepadStickProps {
   onStickReset?: () => void;
 }
 
-export const GamepadStick: React.FC<GamepadStickProps> = ({ 
-  x, 
-  y, 
-  label, 
-  upKey, 
-  downKey, 
-  leftKey, 
+export const GamepadStick: React.FC<GamepadStickProps> = ({
+  x,
+  y,
+  label,
+  upKey,
+  downKey,
+  leftKey,
   rightKey,
   upLabel,
   downLabel,
@@ -41,14 +41,14 @@ export const GamepadStick: React.FC<GamepadStickProps> = ({
   onStickButtonPress,
   onStickButtonRelease,
   onStickMove,
-  onStickReset
+  onStickReset,
 }) => {
   const [isLocked, setIsLocked] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const stickRef = useRef<HTMLDivElement>(null);
   const lastPressedRef = useRef(isPressed);
   const userInteractingRef = useRef(false);
-  
+
   // Detect external changes (e.g., from keyboard) and clear lock
   useEffect(() => {
     // If isPressed changed and we're not in the middle of user interaction, clear lock
@@ -57,49 +57,55 @@ export const GamepadStick: React.FC<GamepadStickProps> = ({
     }
     lastPressedRef.current = isPressed;
   }, [isPressed]);
-  
-  const normalizedX = 50 + (x * 40);
-  const normalizedY = 50 - (y * 40);
-  
-  const updateStickPosition = React.useCallback((clientX: number, clientY: number) => {
-    if (!onStickMove || !stickRef.current) return;
-    
-    const rect = stickRef.current.getBoundingClientRect();
-    const centerX = rect.left + rect.width / 2;
-    const centerY = rect.top + rect.height / 2;
-    
-    let newX = ((clientX - centerX) / (rect.width / 2));
-    let newY = -((clientY - centerY) / (rect.height / 2));
-    
-    // Calculate distance from center
-    const distance = Math.sqrt(newX * newX + newY * newY);
-    
-    // Clamp to circular boundary (radius = 1)
-    if (distance > 1) {
-      newX = newX / distance;
-      newY = newY / distance;
-    }
-    
-    // Apply deadzone
-    const deadzone = 0.1;
-    if (distance < deadzone) {
-      newX = 0;
-      newY = 0;
-    }
-    
-    onStickMove(newX, newY);
-  }, [onStickMove]);
+
+  const normalizedX = 50 + x * 40;
+  const normalizedY = 50 - y * 40;
+
+  const updateStickPosition = React.useCallback(
+    (clientX: number, clientY: number) => {
+      if (!onStickMove || !stickRef.current) return;
+
+      const rect = stickRef.current.getBoundingClientRect();
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+
+      let newX = (clientX - centerX) / (rect.width / 2);
+      let newY = -((clientY - centerY) / (rect.height / 2));
+
+      // Calculate distance from center
+      const distance = Math.sqrt(newX * newX + newY * newY);
+
+      // Clamp to circular boundary (radius = 1)
+      if (distance > 1) {
+        newX = newX / distance;
+        newY = newY / distance;
+      }
+
+      // Apply deadzone
+      const deadzone = 0.1;
+      if (distance < deadzone) {
+        newX = 0;
+        newY = 0;
+      }
+
+      onStickMove(newX, newY);
+    },
+    [onStickMove],
+  );
 
   const handleMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
     setIsDragging(true);
     updateStickPosition(event.clientX, event.clientY);
   };
 
-  const handleMouseMove = React.useCallback((event: MouseEvent) => {
-    if (isDragging) {
-      updateStickPosition(event.clientX, event.clientY);
-    }
-  }, [isDragging, updateStickPosition]);
+  const handleMouseMove = React.useCallback(
+    (event: MouseEvent) => {
+      if (isDragging) {
+        updateStickPosition(event.clientX, event.clientY);
+      }
+    },
+    [isDragging, updateStickPosition],
+  );
 
   const handleMouseUp = React.useCallback(() => {
     setIsDragging(false);
@@ -110,7 +116,7 @@ export const GamepadStick: React.FC<GamepadStickProps> = ({
     if (isDragging) {
       window.addEventListener('mousemove', handleMouseMove);
       window.addEventListener('mouseup', handleMouseUp);
-      
+
       return () => {
         window.removeEventListener('mousemove', handleMouseMove);
         window.removeEventListener('mouseup', handleMouseUp);
@@ -159,7 +165,9 @@ export const GamepadStick: React.FC<GamepadStickProps> = ({
       onStickButtonClick();
     }
     // Keep flag set to prevent unlock until next state change
-    setTimeout(() => { userInteractingRef.current = false; }, 0);
+    setTimeout(() => {
+      userInteractingRef.current = false;
+    }, 0);
   };
 
   const handleStickButtonMouseLeave = () => {
@@ -168,37 +176,37 @@ export const GamepadStick: React.FC<GamepadStickProps> = ({
     }
     userInteractingRef.current = false;
   };
-  
+
   return (
     <div className="flex flex-col items-center gap-2">
       {/* Top key */}
-      <div className="h-3 flex items-center justify-center">
+      <div className="flex h-3 items-center justify-center">
         {(upKey || upLabel) && (
           <span className="text-[9px] text-gray-500 dark:text-gray-400">
             {upKey || upLabel}
           </span>
         )}
       </div>
-      
+
       {/* Stick area with left/right keys */}
       <div className="flex items-center gap-2">
         {/* Left key */}
-        <div className="w-6 flex items-center justify-end">
+        <div className="flex w-6 items-center justify-end">
           {(leftKey || leftLabel) && (
             <span className="text-[9px] text-gray-500 dark:text-gray-400">
               {leftKey || leftLabel}
             </span>
           )}
         </div>
-        
+
         {/* Stick */}
-        <div 
+        <div
           ref={stickRef}
           className={clsx(
-            'relative h-24 w-24 rounded-full border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 cursor-pointer transition-colors',
-            isDragging 
-              ? 'border-blue-500 dark:border-blue-400' 
-              : 'hover:border-blue-400 dark:hover:border-blue-500'
+            'relative h-24 w-24 cursor-pointer rounded-full border border-gray-300 bg-gray-50 transition-colors dark:border-gray-600 dark:bg-gray-800',
+            isDragging
+              ? 'border-blue-500 dark:border-blue-400'
+              : 'hover:border-blue-400 dark:hover:border-blue-500',
           )}
           onMouseDown={handleMouseDown}
           onDoubleClick={handleDoubleClick}
@@ -207,10 +215,10 @@ export const GamepadStick: React.FC<GamepadStickProps> = ({
           {/* Knob */}
           <div
             className={clsx(
-              'absolute h-4 w-4 rounded-full pointer-events-none shadow-sm',
-              isPressed 
-                ? 'bg-blue-500 dark:bg-blue-400' 
-                : 'bg-gray-600 dark:bg-gray-400'
+              'pointer-events-none absolute h-4 w-4 rounded-full shadow-sm',
+              isPressed
+                ? 'bg-blue-500 dark:bg-blue-400'
+                : 'bg-gray-600 dark:bg-gray-400',
             )}
             style={{
               left: `${normalizedX}%`,
@@ -219,14 +227,14 @@ export const GamepadStick: React.FC<GamepadStickProps> = ({
               transition: 'background-color 0.15s ease',
             }}
           />
-          
+
           {/* Crosshair */}
-          <div className="absolute left-1/2 top-1/2 h-px w-full -translate-x-1/2 -translate-y-1/2 bg-gray-300 dark:bg-gray-600 pointer-events-none opacity-40" />
-          <div className="absolute left-1/2 top-1/2 h-full w-px -translate-x-1/2 -translate-y-1/2 bg-gray-300 dark:bg-gray-600 pointer-events-none opacity-40" />
+          <div className="pointer-events-none absolute left-1/2 top-1/2 h-px w-full -translate-x-1/2 -translate-y-1/2 bg-gray-300 opacity-40 dark:bg-gray-600" />
+          <div className="pointer-events-none absolute left-1/2 top-1/2 h-full w-px -translate-x-1/2 -translate-y-1/2 bg-gray-300 opacity-40 dark:bg-gray-600" />
         </div>
-        
+
         {/* Right key */}
-        <div className="w-6 flex items-center justify-start">
+        <div className="flex w-6 items-center justify-start">
           {(rightKey || rightLabel) && (
             <span className="text-[9px] text-gray-500 dark:text-gray-400">
               {rightKey || rightLabel}
@@ -234,38 +242,47 @@ export const GamepadStick: React.FC<GamepadStickProps> = ({
           )}
         </div>
       </div>
-      
+
       {/* Bottom key */}
-      <div className="h-3 flex items-center justify-center">
+      <div className="flex h-3 items-center justify-center">
         {(downKey || downLabel) && (
           <span className="text-[9px] text-gray-500 dark:text-gray-400">
             {downKey || downLabel}
           </span>
         )}
       </div>
-      
+
       <button
         className={clsx(
-          'rounded-md px-2.5 py-1 text-xs font-medium transition-all select-none',
+          'select-none rounded-md px-2.5 py-1 text-xs font-medium transition-all',
           'hover:scale-105 active:scale-95',
           isPressed
             ? 'bg-blue-500 text-white shadow-sm'
-            : 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600',
-          isLocked && 'ring-2 ring-blue-400 ring-offset-2 dark:ring-offset-gray-900'
+            : 'bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600',
+          isLocked &&
+            'ring-2 ring-blue-400 ring-offset-2 dark:ring-offset-gray-900',
         )}
         onMouseDown={handleStickButtonMouseDown}
         onMouseUp={handleStickButtonMouseUp}
         onMouseLeave={handleStickButtonMouseLeave}
         onDoubleClick={handleStickButtonDoubleClick}
-        title={buttonKeyBinding ? `Key: ${buttonKeyBinding} | Hold or double-click to lock` : 'Hold or double-click to lock'}
+        title={
+          buttonKeyBinding
+            ? `Key: ${buttonKeyBinding} | Hold or double-click to lock`
+            : 'Hold or double-click to lock'
+        }
       >
         {label}
       </button>
       {buttonKeyBinding && (
-        <span className={clsx(
-          'text-[9px] opacity-70 leading-none',
-          isPressed ? 'text-blue-500 dark:text-blue-400' : 'text-gray-500 dark:text-gray-400'
-        )}>
+        <span
+          className={clsx(
+            'text-[9px] leading-none opacity-70',
+            isPressed
+              ? 'text-blue-500 dark:text-blue-400'
+              : 'text-gray-500 dark:text-gray-400',
+          )}
+        >
           {buttonKeyBinding}
         </span>
       )}

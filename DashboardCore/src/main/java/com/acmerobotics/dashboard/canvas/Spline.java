@@ -5,8 +5,19 @@ public class Spline extends CanvasOp {
     private double ax, bx, cx, dx, ex, fx;
     private double ay, by, cy, dy, ey, fy;
 
-    public Spline(double ax, double bx, double cx, double dx, double ex, double fx,
-                  double ay, double by, double cy, double dy, double ey, double fy) {
+    public Spline(
+            double ax,
+            double bx,
+            double cx,
+            double dx,
+            double ex,
+            double fx,
+            double ay,
+            double by,
+            double cy,
+            double dy,
+            double ey,
+            double fy) {
         super(Type.SPLINE);
 
         this.ax = ax;
