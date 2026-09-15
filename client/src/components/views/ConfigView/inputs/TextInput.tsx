@@ -70,7 +70,7 @@ const TextInput = <T,>({
 
   const decimalPlaces = countDecimalPlaces(inputValue);
   const step =
-    decimalPlaces == 0 ? '1.0' : `0.${'0'.repeat(decimalPlaces - 1)}1`;
+    decimalPlaces === 0 ? '1.0' : `0.${'0'.repeat(decimalPlaces - 1)}1`;
 
   return (
     <input

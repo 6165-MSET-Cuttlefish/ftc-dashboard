@@ -6,15 +6,13 @@ package com.acmerobotics.dashboard.config;
  * @param <T> type of the value
  */
 public interface ValueProvider<T> {
-    /**
-     * Returns the value.
-     */
+    /** Returns the value. */
     T get();
 
     /**
      * Updates the value. {@link #get()} should now return this new value.
      *
-     * @param value
+     * @param value new value
      */
     void set(T value);
 }
