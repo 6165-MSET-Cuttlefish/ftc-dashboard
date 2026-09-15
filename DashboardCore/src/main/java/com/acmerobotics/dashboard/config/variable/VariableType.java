@@ -2,9 +2,7 @@ package com.acmerobotics.dashboard.config.variable;
 
 import com.google.gson.annotations.SerializedName;
 
-/**
- * Types of variables supported by the dashboard.
- */
+/** Types of variables supported by the dashboard. */
 public enum VariableType {
     @SerializedName("boolean")
     BOOLEAN,
@@ -36,7 +34,7 @@ public enum VariableType {
     /**
      * Returns the variable type corresponding to the class provided.
      *
-     * @param klass
+     * @param klass class to inspect
      */
     public static VariableType fromClass(Class<?> klass) {
         if (klass == Boolean.class || klass == boolean.class) {

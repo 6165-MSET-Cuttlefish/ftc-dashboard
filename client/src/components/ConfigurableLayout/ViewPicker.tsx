@@ -12,7 +12,6 @@ import { ReactComponent as WidgetIcon } from '@/assets/icons/widgets.svg';
 import { ReactComponent as ListIcon } from '@/assets/icons/list.svg';
 import { ReactComponent as HardwareIcon } from '@/assets/icons/hardware.svg';
 import { ReactComponent as GamepadIcon } from '@/assets/icons/gamepad.svg';
-import { ReactComponent as DeleteSweepIcon } from '@/assets/icons/delete_sweep.svg';
 import { ReactComponent as ExclamationIcon } from '@/assets/icons/exclamation.svg';
 
 type ViewPickerProps = {
