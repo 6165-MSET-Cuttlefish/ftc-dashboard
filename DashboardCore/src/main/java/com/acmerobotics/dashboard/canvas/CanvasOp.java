@@ -40,7 +40,6 @@ public abstract class CanvasOp {
         @SerializedName("strokeWidth")
         STROKE_WIDTH,
 
-
         @SerializedName("text")
         TEXT,
 
