@@ -5,7 +5,8 @@ import com.acmerobotics.dashboard.message.Message;
 import com.acmerobotics.dashboard.message.MessageType;
 
 /**
- * Message containing the baseline configuration values (values that were present when deployed to the bot).
+ * Message containing the baseline configuration values (values that were present when deployed to
+ * the bot).
  */
 public class ReceiveConfigBaseline extends Message {
     private CustomVariable configBaseline;

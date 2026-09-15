@@ -7,9 +7,7 @@ import java.util.List;
 import org.firstinspires.ftc.robotcore.external.Func;
 import org.firstinspires.ftc.robotcore.external.Telemetry;
 
-/**
- * Delegate for a list of multiple telemetry objects.
- */
+/** Delegate for a list of multiple telemetry objects. */
 public class MultipleTelemetry implements Telemetry {
     private List<Telemetry> telemetryList;
     private MultipleLog log;
@@ -25,7 +23,7 @@ public class MultipleTelemetry implements Telemetry {
     /**
      * Adds another telemetry object.
      *
-     * @param telemetry
+     * @param telemetry delegate to add
      */
     public void addTelemetry(Telemetry telemetry) {
         this.telemetryList.add(telemetry);

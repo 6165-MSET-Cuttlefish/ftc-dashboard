@@ -4,6 +4,7 @@ import com.acmerobotics.dashboard.message.Message;
 import com.acmerobotics.dashboard.message.MessageType;
 
 public class ReceiveGamepadState extends Message {
+    @SuppressWarnings("checkstyle:MemberName")
     public static class Gamepad {
         public float left_stick_x, left_stick_y, right_stick_x, right_stick_y;
         public boolean dpad_up, dpad_down, dpad_left, dpad_right;

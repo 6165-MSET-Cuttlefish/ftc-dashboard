@@ -1378,7 +1378,7 @@ export class Robot {
       }
     };
 
-    const checkUnexpectedInnerText = (element: any, typeName: string) => {
+    const checkUnexpectedInnerText = (element: Device, typeName: string) => {
       if (element.rawInnerText && element.rawInnerText.trim() !== '') {
         errors.push(
           `${typeName} "${
@@ -1503,7 +1503,6 @@ export class Robot {
             errors.push(
               `Attribute #${idx + 1} in custom hub "${d.name}" has empty key.`,
             );
-          checkUnexpectedInnerText(attr, `Attribute #${idx + 1}`);
         });
       }
       if (d instanceof EthernetDevice) {
