@@ -19,8 +19,9 @@ public class TestTelemetryOpMode extends TestOpMode {
 
     @Override
     protected void loop() throws InterruptedException {
-        double phase = 2 * Math.PI * FREQUENCY * (System.currentTimeMillis() / 1000d)
-            + Math.toRadians(PHASE);
+        double phase =
+                2 * Math.PI * FREQUENCY * (System.currentTimeMillis() / 1000d)
+                        + Math.toRadians(PHASE);
         double x = AMPLITUDE * Math.sin(phase);
         double y = AMPLITUDE * Math.cos(phase);
 
