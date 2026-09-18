@@ -13,6 +13,7 @@ import { ReactComponent as ListIcon } from '@/assets/icons/list.svg';
 import { ReactComponent as HardwareIcon } from '@/assets/icons/hardware.svg';
 import { ReactComponent as GamepadIcon } from '@/assets/icons/gamepad.svg';
 import { ReactComponent as ExclamationIcon } from '@/assets/icons/exclamation.svg';
+import { ReactComponent as TerminalIcon } from '@/assets/icons/terminal.svg';
 
 type ViewPickerProps = {
   isOpen: boolean;
@@ -161,9 +162,9 @@ const listContent = [
     iconBg: 'bg-lime-500',
   },
   {
-    title: 'Log View',
+    title: 'Logcat View',
     view: ConfigurableView.LOG_VIEW,
-    icon: <SubjectIcon className="h-6 w-6 text-white" />,
+    icon: <TerminalIcon className="h-6 w-6 text-white" />,
     customStyles: 'focus:ring-fuchsia-600',
     iconBg: 'bg-fuchsia-500',
   },

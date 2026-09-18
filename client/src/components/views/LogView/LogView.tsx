@@ -22,38 +22,14 @@ import {
   stopLogRecording,
   clearLogRecording,
 } from '@/store/actions/logRecorder';
+import {
+  formatTimestamp,
+  getLevelColor,
+} from '@/components/views/logcatFormat';
 
-// Recordings longer than this are download-only; shorter ones can also be
-// viewed inline without leaving the dashboard
+// How many entries the list will render at once; the recording itself and the
+// downloaded file always hold everything
 const INLINE_VIEW_LIMIT = 500;
-
-const formatTimestamp = (timestamp: number): string => {
-  const date = new Date(timestamp);
-  return date.toLocaleTimeString('en-US', {
-    hour12: false,
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    fractionalSecondDigits: 3,
-  });
-};
-
-const getLevelColor = (level: LogcatError['level']): string => {
-  switch (level) {
-    case 'ERROR':
-      return 'text-red-600 dark:text-red-400';
-    case 'WARN':
-      return 'text-yellow-600 dark:text-yellow-400';
-    case 'INFO':
-      return 'text-blue-600 dark:text-blue-400';
-    case 'DEBUG':
-      return 'text-green-600 dark:text-green-400';
-    case 'VERBOSE':
-      return 'text-purple-600 dark:text-purple-400';
-    default:
-      return 'text-gray-600 dark:text-gray-400';
-  }
-};
 
 const compileLogFile = (
   entries: LogcatError[],
@@ -63,9 +39,16 @@ const compileLogFile = (
 ): string => {
   const header = [
     '# FTC Dashboard Control Hub logs',
-    `# Recording started: ${startTime ? new Date(startTime).toISOString() : 'unknown'}`,
-    `# Recording stopped: ${stopTime ? new Date(stopTime).toISOString() : 'unknown'}`,
-    `# Entries: ${entries.length}${truncated ? ' (older entries dropped)' : ''}`,
+    `# Recording started: ${
+      startTime ? new Date(startTime).toISOString() : 'unknown'
+    }`,
+    `# Recording stopped: ${
+      stopTime ? new Date(stopTime).toISOString() : 'unknown'
+    }`,
+    `# Entries: ${entries.length}${
+      truncated ? ' (older entries dropped)' : ''
+    }`,
+    '# Line timestamps are the Control Hub clock, which need not agree with the recording times above',
     '',
   ].join('\n');
 
@@ -102,7 +85,7 @@ const LogView = ({ isDraggable = false, isUnlocked = false }: LogViewProps) => {
   }, [entries, isAutoScroll]);
 
   const hasFinishedRecording = !isRecording && stopTime !== null;
-  const canViewInline = entries.length <= INLINE_VIEW_LIMIT;
+  const isTailOnly = entries.length > INLINE_VIEW_LIMIT;
 
   const downloadLogs = () => {
     const content = compileLogFile(entries, startTime, stopTime, truncated);
@@ -114,10 +97,16 @@ const LogView = ({ isDraggable = false, isUnlocked = false }: LogViewProps) => {
       .replace(/[:.]/g, '-')
       .slice(0, 19);
     const anchor = document.createElement('a');
+    anchor.style.display = 'none';
+    document.body.appendChild(anchor);
+
     anchor.href = url;
     anchor.download = `control-hub-logs-${stamp}.log`;
     anchor.click();
-    URL.revokeObjectURL(url);
+    anchor.remove();
+
+    // Safari can still be reading the blob when click() returns.
+    setTimeout(() => URL.revokeObjectURL(url), 0);
   };
 
   const renderEntries = () => (
@@ -127,11 +116,8 @@ const LogView = ({ isDraggable = false, isUnlocked = false }: LogViewProps) => {
       style={{ minHeight: 0 }}
     >
       <div className="space-y-1">
-        {entries.map((entry, index) => (
-          <div
-            key={`${entry.timestamp}-${index}`}
-            className="flex items-baseline space-x-2"
-          >
+        {entries.slice(-INLINE_VIEW_LIMIT).map((entry) => (
+          <div key={entry.id} className="flex items-baseline space-x-2">
             <span className="shrink-0 text-gray-500 dark:text-gray-400">
               [{formatTimestamp(entry.timestamp)}]
             </span>
@@ -159,11 +145,13 @@ const LogView = ({ isDraggable = false, isUnlocked = false }: LogViewProps) => {
           <div className="flex items-center justify-between border-b px-3 py-2 dark:border-gray-600">
             <span
               className="flex items-center text-sm font-medium"
-              title={`Keeps the most recent ${maxEntries.toLocaleString()} lines — adjustable in Settings`}
+              title={`Keeps the most recent ${maxEntries.toLocaleString()} lines - adjustable in Settings`}
             >
               <span className="mr-2 inline-block h-2.5 w-2.5 animate-pulse rounded-full bg-red-500" />
-              Recording — {entries.length} of max{' '}
+              Recording - {entries.length.toLocaleString()} of max{' '}
               {maxEntries.toLocaleString()} line(s)
+              {isTailOnly &&
+                ` (showing last ${INLINE_VIEW_LIMIT} of ${entries.length.toLocaleString()})`}
             </span>
             <label className="flex items-center text-sm">
               <input
@@ -199,9 +187,11 @@ const LogView = ({ isDraggable = false, isUnlocked = false }: LogViewProps) => {
         <div className="flex h-full flex-col">
           <div className="flex items-center justify-between border-b px-3 py-2 dark:border-gray-600">
             <span className="text-sm font-medium">
-              Captured {entries.length} line(s)
+              Captured {entries.length.toLocaleString()} line(s)
+              {isTailOnly &&
+                ` (showing last ${INLINE_VIEW_LIMIT} of ${entries.length.toLocaleString()})`}
               {truncated &&
-                ' (older entries dropped — raise the limit in Settings)'}
+                ' (older entries dropped - raise the limit in Settings)'}
             </span>
             <button
               className="rounded border border-gray-300 px-2 py-1 text-sm transition hover:border-gray-500 dark:border-slate-500 dark:hover:border-slate-300"
@@ -210,17 +200,10 @@ const LogView = ({ isDraggable = false, isUnlocked = false }: LogViewProps) => {
               Download .log
             </button>
           </div>
-          {canViewInline ? (
-            renderEntries()
-          ) : (
-            <div className="flex flex-1 items-center justify-center text-gray-500 dark:text-gray-400">
-              <div className="max-w-sm text-center">
-                <p className="mb-1">
-                  This recording is too long to preview here (
-                  {entries.length} lines, limit {INLINE_VIEW_LIMIT}).
-                </p>
-                <p>Download the file to view the full logs.</p>
-              </div>
+          {renderEntries()}
+          {isTailOnly && (
+            <div className="border-t px-3 py-2 text-xs text-gray-500 dark:border-gray-600 dark:text-gray-400">
+              Download the file to view the full logs.
             </div>
           )}
         </div>
@@ -235,11 +218,11 @@ const LogView = ({ isDraggable = false, isUnlocked = false }: LogViewProps) => {
           </p>
           <p className="mb-1 text-sm">
             Keeps the most recent {maxEntries.toLocaleString()} lines per
-            recording — adjustable in Settings (gear icon, top right).
+            recording - adjustable in Settings (gear icon, top right).
           </p>
           {!isConnected && (
             <p className="text-sm">
-              (Not connected to the robot — logs will appear once connected)
+              (Not connected to the robot - logs will appear once connected)
             </p>
           )}
         </div>
@@ -250,7 +233,7 @@ const LogView = ({ isDraggable = false, isUnlocked = false }: LogViewProps) => {
   return (
     <BaseView className="flex flex-col overflow-hidden" isUnlocked={isUnlocked}>
       <div className="flex">
-        <BaseViewHeading isDraggable={isDraggable}>Log View</BaseViewHeading>
+        <BaseViewHeading isDraggable={isDraggable}>Logcat</BaseViewHeading>
         <BaseViewIcons>
           {isRecording ? (
             <BaseViewIconButton
