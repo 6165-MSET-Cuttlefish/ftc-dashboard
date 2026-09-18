@@ -31,9 +31,7 @@ class GraphCanvas extends React.Component {
   }
 
   componentWillUnmount() {
-    if (this.requestId) {
-      cancelAnimationFrame(this.requestId);
-    }
+    this.cancelPendingFrame();
   }
 
   // TODO: Regretably, the current design requires that this.graph.add() only be called
@@ -90,7 +88,16 @@ class GraphCanvas extends React.Component {
     this.props.onTimeBounds(bounds);
   }
 
+  cancelPendingFrame() {
+    if (this.requestId) {
+      cancelAnimationFrame(this.requestId);
+      this.requestId = 0;
+    }
+  }
+
   renderGraph() {
+    this.cancelPendingFrame();
+
     const time = this.props.paused ? this.props.pausedTime : Date.now();
 
     this.setState(() => ({
@@ -98,10 +105,20 @@ class GraphCanvas extends React.Component {
     }));
 
     if (this.props.paused) {
-      this.requestId = 0;
+      this.reportShownTime(time);
     } else {
       this.requestId = requestAnimationFrame(this.renderGraph);
     }
+  }
+
+  // the parent cannot derive the frozen right edge from wall time
+  reportShownTime(time) {
+    if (!this.props.onShownTime) return;
+
+    const shownMs = this.graph.shownMs(time, this.props.scrubMs);
+    if (isNaN(shownMs)) return;
+
+    this.props.onShownTime(shownMs);
   }
 
   render() {
@@ -143,6 +160,7 @@ GraphCanvas.propTypes = {
   // changes to reset the recorded history (new op mode run)
   runId: PropTypes.number,
   onTimeBounds: PropTypes.func,
+  onShownTime: PropTypes.func,
 };
 
 export default GraphCanvas;

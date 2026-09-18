@@ -38,8 +38,8 @@ export const DEFAULT_OPTIONS: Options = {
   maxTicks: 7,
 };
 
-// upper bound on the number of retained samples per series; at typical telemetry
-// rates (~10-50 Hz) this covers well over an hour of an op mode
+// upper bound on the number of retained samples per series: about 33 minutes at
+// 50 Hz, about 2.7 hours at the 100 ms default transmission interval
 const MAX_HISTORY_SAMPLES = 100000;
 
 // first index i such that ts[i] >= value (ts is sorted ascending)
@@ -69,8 +69,10 @@ function visibleRange(ts: number[], startMs: number, endMs: number) {
   const hi = lowerBound(ts, endMs);
 
   if (lo === hi) {
-    // no samples land inside the window; only a segment spanning it is visible
-    if (lo === 0 || lo === ts.length) return null;
+    // no samples land inside the window; only a segment spanning it, or a
+    // single sample sitting exactly on the right edge, is visible
+    if (lo === ts.length) return null;
+    if (lo === 0) return ts[0] <= endMs ? { first: 0, last: 0 } : null;
 
     return { first: lo - 1, last: lo };
   }
@@ -181,6 +183,12 @@ function scale(
 type Sample = {
   name: string;
   value: number;
+};
+
+// inclusive indices of the samples a series contributes to the plot
+type SampleRange = {
+  first: number;
+  last: number;
 };
 
 // align coordinate to the nearest pixel, offset by a half pixel
@@ -299,10 +307,6 @@ export default class Graph {
     this.beginRenderTimeMs = time;
   }
 
-  hasData() {
-    return Object.values(this.data).some(({ ts }) => ts.length > 0);
-  }
-
   // extent of the retained history, or null if nothing has been recorded
   getTimeBounds() {
     if (isNaN(this.firstSampleMs) || isNaN(this.latestSampleMs)) return null;
@@ -315,6 +319,28 @@ export default class Graph {
     if (isNaN(this.beginGraphNowMs)) return Number.NaN;
 
     return this.beginGraphNowMs + (time - this.beginRenderTimeMs);
+  }
+
+  // telemetry time at the right edge: the scrub position, else live playback
+  shownMs(time: number, scrubMs?: number | null) {
+    return typeof scrubMs === 'number' && !isNaN(scrubMs)
+      ? scrubMs
+      : this.getGraphNowMs(time);
+  }
+
+  seriesFor(name: string) {
+    if (!Object.prototype.hasOwnProperty.call(this.data, name)) {
+      this.data[name] = {
+        ts: [],
+        vs: [],
+        color:
+          this.options.colors[
+            Object.keys(this.data).length % this.options.colors.length
+          ],
+      };
+    }
+
+    return this.data[name];
   }
 
   add(time: number, samples: Sample[][]) {
@@ -333,20 +359,28 @@ export default class Graph {
 
         if (isNaN(value)) continue;
 
-        if (!Object.prototype.hasOwnProperty.call(this.data, name)) {
-          this.data[name] = {
-            ts: [],
-            vs: [],
-            color: o.colors[Object.keys(this.data).length % o.colors.length],
-          };
+        const recorded = this.seriesFor(name).ts;
+        const lastMs = recorded[recorded.length - 1];
+
+        // a small step back is jitter between telemetry threads; a step of a
+        // whole window is the robot clock moving, so the history starts over
+        if (recorded.length > 0 && t < lastMs) {
+          if (lastMs - t < o.windowMs) continue;
+
+          this.reset();
         }
 
-        const { ts, vs } = this.data[name];
+        const { ts, vs } = this.seriesFor(name);
+
         ts.push(t);
         vs.push(value);
 
         if (ts.length > MAX_HISTORY_SAMPLES) {
-          const excess = ts.length - MAX_HISTORY_SAMPLES;
+          // trimming one sample per packet would move the whole array every time
+          const excess = Math.max(
+            ts.length - MAX_HISTORY_SAMPLES,
+            Math.floor(MAX_HISTORY_SAMPLES / 10),
+          );
           ts.splice(0, excess);
           vs.splice(0, excess);
 
@@ -378,12 +412,23 @@ export default class Graph {
     }
   }
 
-  getYAxisScaling(startMs: number, endMs: number) {
+  // series with nothing to show in [startMs, endMs] are left out
+  getVisibleRanges(startMs: number, endMs: number) {
+    const ranges = new Map<string, SampleRange>();
+
+    for (const [name, { ts }] of Object.entries(this.data)) {
+      const range = visibleRange(ts, startMs, endMs);
+      if (range !== null) ranges.set(name, range);
+    }
+
+    return ranges;
+  }
+
+  getYAxisScaling(ranges: Map<string, SampleRange>) {
     let [min, max] = [Number.MAX_VALUE, -Number.MAX_VALUE];
 
-    for (const { ts, vs } of Object.values(this.data)) {
-      const range = visibleRange(ts, startMs, endMs);
-      if (range === null) continue;
+    for (const [name, range] of ranges) {
+      const { vs } = this.data[name];
 
       for (let i = range.first; i <= range.last; i++) {
         min = Math.min(vs[i], min);
@@ -411,14 +456,12 @@ export default class Graph {
     // eslint-disable-next-line
     this.canvas.width = this.canvas.width; // clears the canvas
 
-    const graphNowMs =
-      typeof scrubMs === 'number' && !isNaN(scrubMs)
-        ? scrubMs
-        : this.getGraphNowMs(time);
+    const graphNowMs = this.shownMs(time, scrubMs);
 
     if (isNaN(graphNowMs)) return false;
 
-    if (!this.hasData()) return false;
+    const ranges = this.getVisibleRanges(graphNowMs - o.windowMs, graphNowMs);
+    if (ranges.size === 0) return false;
 
     // scale the canvas to facilitate the use of CSS pixels
     this.ctx.scale(devicePixelRatio, devicePixelRatio);
@@ -434,7 +477,14 @@ export default class Graph {
     const height = this.canvas.height / devicePixelRatio;
 
     const keyHeight = this.renderKey(0, 0, width);
-    this.renderGraph(0, keyHeight, width, height - keyHeight, graphNowMs);
+    this.renderGraph(
+      0,
+      keyHeight,
+      width,
+      height - keyHeight,
+      graphNowMs,
+      ranges,
+    );
 
     return true;
   }
@@ -476,12 +526,13 @@ export default class Graph {
     width: number,
     height: number,
     graphNowMs: number,
+    ranges: Map<string, SampleRange>,
   ) {
     const o = this.options;
 
     const graphHeight = height - 2 * o.padding;
 
-    const axis = this.getYAxisScaling(graphNowMs - o.windowMs, graphNowMs);
+    const axis = this.getYAxisScaling(ranges);
     const ticks = getTicks(axis);
     const axisWidth = this.renderAxisLabels(
       x + o.padding,
@@ -508,6 +559,7 @@ export default class Graph {
       graphHeight,
       axis,
       graphNowMs,
+      ranges,
     );
   }
 
@@ -579,6 +631,7 @@ export default class Graph {
     height: number,
     axis: Axis,
     graphNowMs: number,
+    ranges: Map<string, SampleRange>,
   ) {
     const o = this.options;
 
@@ -595,8 +648,8 @@ export default class Graph {
     Object.keys(this.data).forEach((k, i) => {
       const { ts, vs } = this.data[k];
 
-      const range = visibleRange(ts, graphNowMs - o.windowMs, graphNowMs);
-      if (range === null) return;
+      const range = ranges.get(k);
+      if (range === undefined) return;
 
       const color = o.colors[i % o.colors.length];
 

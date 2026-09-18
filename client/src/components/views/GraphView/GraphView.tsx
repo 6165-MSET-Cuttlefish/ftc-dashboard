@@ -41,6 +41,19 @@ type TimeBounds = {
   maxMs: number;
 };
 
+// Safari before 16.4 only exposes the webkit-prefixed Fullscreen API
+type FullscreenDocument = {
+  fullscreenElement?: Element | null;
+  exitFullscreen?: () => Promise<void> | void;
+  webkitFullscreenElement?: Element | null;
+  webkitExitFullscreen?: () => Promise<void> | void;
+};
+
+type FullscreenElement = {
+  requestFullscreen?: () => Promise<void> | void;
+  webkitRequestFullscreen?: () => Promise<void> | void;
+};
+
 type GraphViewState = {
   graphing: boolean;
   opmodePaused: boolean;
@@ -51,6 +64,8 @@ type GraphViewState = {
   windowMs: ValResult<number>;
   // telemetry time shown at the right edge while scrubbing; null follows live data
   scrubMs: number | null;
+  // telemetry time the frozen plot is actually showing at its right edge
+  shownMs: number | null;
   timeBounds: TimeBounds | null;
   // bumped to clear the recorded history when a new op mode run begins
   runId: number;
@@ -97,6 +112,7 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
         valid: true,
       },
       scrubMs: null,
+      shownMs: null,
       timeBounds: null,
       runId: 0,
       isFullscreen: false,
@@ -115,6 +131,7 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
     this.handleFullscreenChange = this.handleFullscreenChange.bind(this);
     this.toggleFullscreen = this.toggleFullscreen.bind(this);
     this.onTimeBounds = this.onTimeBounds.bind(this);
+    this.onShownTime = this.onShownTime.bind(this);
     this.goLive = this.goLive.bind(this);
 
     this.togglePlayback = this.togglePlayback.bind(this);
@@ -132,6 +149,10 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
     }
 
     document.addEventListener('fullscreenchange', this.handleFullscreenChange);
+    document.addEventListener(
+      'webkitfullscreenchange',
+      this.handleFullscreenChange,
+    );
   }
 
   componentWillUnmount() {
@@ -146,6 +167,10 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
       'fullscreenchange',
       this.handleFullscreenChange,
     );
+    document.removeEventListener(
+      'webkitfullscreenchange',
+      this.handleFullscreenChange,
+    );
 
     this.cancelPlayback();
   }
@@ -158,12 +183,7 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
       this.opmodePlay();
     }
 
-    // a fresh op mode run starts the recorded history over
-    const opmodeStarted =
-      !this.noOpmodeRunning(this.props) &&
-      (this.noOpmodeRunning(prevProps) ||
-        this.props.status.activeOpMode !== prevProps.status.activeOpMode);
-    if (opmodeStarted) this.resetHistory();
+    if (this.opmodeRunStarted(this.props, prevProps)) this.resetHistory();
 
     if (this.props.telemetry === prevProps.telemetry) return;
 
@@ -191,14 +211,20 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
   }
 
   handleDocumentKeydown(evt: KeyboardEvent) {
-    // let form controls (notably the scrub slider) handle their own keys
-    const tagName = (evt.target as HTMLElement | null)?.tagName;
+    if (!this.state.graphing) return;
+
+    // text-like fields keep their own keys; the slider and buttons do not
+    const target = evt.target as HTMLElement | null;
+    const tagName = target?.tagName;
     if (
-      tagName === 'INPUT' ||
       tagName === 'TEXTAREA' ||
       tagName === 'SELECT' ||
-      tagName === 'BUTTON'
+      (tagName === 'INPUT' && (target as HTMLInputElement).type !== 'range')
     ) {
+      return;
+    }
+
+    if (tagName === 'BUTTON' && (evt.code === 'Space' || evt.key === 'Enter')) {
       return;
     }
 
@@ -229,18 +255,28 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
 
   handleFullscreenChange() {
     this.setState({
-      isFullscreen: document.fullscreenElement === this.containerRef.current,
+      isFullscreen: this.fullscreenElement() === this.containerRef.current,
     });
   }
 
+  fullscreenElement() {
+    const doc = document as unknown as FullscreenDocument;
+
+    return doc.fullscreenElement ?? doc.webkitFullscreenElement ?? null;
+  }
+
   toggleFullscreen() {
-    if (document.fullscreenElement === this.containerRef.current) {
-      document.exitFullscreen();
-    } else {
-      this.containerRef.current?.requestFullscreen?.().catch(() => {
-        // the browser refused; nothing to do but stay windowed
-      });
-    }
+    const doc = document as unknown as FullscreenDocument;
+    const el = this.containerRef.current as unknown as FullscreenElement | null;
+
+    const toggle =
+      this.fullscreenElement() === this.containerRef.current
+        ? (doc.exitFullscreen ?? doc.webkitExitFullscreen)?.bind(doc)
+        : (el?.requestFullscreen ?? el?.webkitRequestFullscreen)?.bind(el);
+
+    Promise.resolve(toggle?.()).catch(() => {
+      // the browser refused; nothing to do but stay windowed
+    });
   }
 
   noOpmodeRunning(props: GraphViewProps) {
@@ -249,6 +285,19 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
       props.status.activeOpMode === STOP_OP_MODE_TAG ||
       props.status.activeOpModeStatus === OpModeStatus.STOPPED
     );
+  }
+
+  // a dropped socket empties opModeInfoList without ending the run, so a new
+  // run is recognised from the op mode status alone
+  opmodeRunStarted(props: GraphViewProps, prevProps: GraphViewProps) {
+    const stopped = (status: GraphViewProps['status']) =>
+      status.activeOpMode === STOP_OP_MODE_TAG ||
+      status.activeOpModeStatus === OpModeStatus.STOPPED;
+
+    if (stopped(props.status)) return false;
+    if (stopped(prevProps.status)) return true;
+
+    return props.status.activeOpMode !== prevProps.status.activeOpMode;
   }
 
   // true whenever the plot is frozen, whether by the user, a stopped op mode, or scrubbing
@@ -269,25 +318,43 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
   }
 
   // the span of positions the scrub slider can address; the right edge of the
-  // plot can go no further left than one window past the oldest sample
+  // plot can go no further left than one window past the oldest sample, or
+  // than the start of a recording shorter than the window
+  scrubRangeFor(bounds: TimeBounds) {
+    const windowEnd = bounds.minMs + this.effectiveWindowMs();
+
+    return {
+      min: windowEnd <= bounds.maxMs ? windowEnd : bounds.minMs,
+      max: bounds.maxMs,
+    };
+  }
+
   getScrubRange() {
     const bounds = this.state.timeBounds;
-    if (bounds === null) return null;
 
-    const min = Math.min(bounds.minMs + this.effectiveWindowMs(), bounds.maxMs);
-
-    return { min, max: bounds.maxMs };
+    return bounds === null ? null : this.scrubRangeFor(bounds);
   }
 
   onTimeBounds(timeBounds: TimeBounds | null) {
-    this.setState((state) => ({
-      timeBounds,
+    this.setState((state) => {
+      if (state.scrubMs === null || timeBounds === null) {
+        return { timeBounds, scrubMs: state.scrubMs };
+      }
+
       // a truncated history can leave the scrub position out of range
-      scrubMs:
-        state.scrubMs !== null && timeBounds !== null
-          ? Math.max(state.scrubMs, timeBounds.minMs)
-          : state.scrubMs,
-    }));
+      const range = this.scrubRangeFor(timeBounds);
+
+      return {
+        timeBounds,
+        scrubMs: Math.min(Math.max(state.scrubMs, range.min), range.max),
+      };
+    });
+  }
+
+  onShownTime(shownMs: number) {
+    if (this.state.shownMs === shownMs) return;
+
+    this.setState({ shownMs });
   }
 
   scrubTo(scrubMs: number | null) {
@@ -309,7 +376,17 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
 
   goLive() {
     this.cancelPlayback();
-    this.setState({ scrubMs: null, playing: false });
+
+    // with the op mode over, End goes to the end of the recording
+    const range = this.getScrubRange();
+    const endMs =
+      this.noOpmodeRunning(this.props) && range !== null ? range.max : null;
+
+    this.setState((state) => ({
+      scrubMs: endMs,
+      playing: false,
+      pausedTime: this.isPaused() ? state.pausedTime : Date.now(),
+    }));
   }
 
   cancelPlayback() {
@@ -384,6 +461,7 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
     this.setState((state) => ({
       runId: state.runId + 1,
       scrubMs: null,
+      shownMs: null,
       timeBounds: null,
       playing: false,
     }));
@@ -395,6 +473,7 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
       graphing: true,
       userPaused: false,
       scrubMs: null,
+      shownMs: null,
       timeBounds: null,
       playing: false,
     });
@@ -406,6 +485,9 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
       ...this.state,
       graphing: false,
       playing: false,
+      scrubMs: null,
+      shownMs: null,
+      timeBounds: null,
     });
   }
 
@@ -504,7 +586,18 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
 
     const scrubbable =
       bounds !== null && range !== null && range.max > range.min;
-    const position = this.state.scrubMs ?? range?.max ?? 0;
+
+    // a frozen plot does not follow the newest sample, so the readout shows
+    // the window last drawn, clamped to the recording for display
+    const shownEnd =
+      this.state.scrubMs ?? (this.isPaused() ? this.state.shownMs : null);
+    const position =
+      range === null
+        ? 0
+        : Math.min(Math.max(shownEnd ?? range.max, range.min), range.max);
+
+    const replayMode = this.noOpmodeRunning(this.props);
+    const atEnd = range === null || (shownEnd ?? range.max) === range.max;
 
     // the slider works in ms since the start of the history rather than in
     // absolute telemetry time, which keeps the numbers small and the readout
@@ -512,16 +605,18 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
     const windowMs = this.effectiveWindowMs();
     const spanMs = bounds === null ? 0 : bounds.maxMs - bounds.minMs;
     const relPosition = bounds === null ? 0 : position - bounds.minMs;
+    const relMin =
+      bounds === null || range === null ? 0 : range.min - bounds.minMs;
 
     const windowEndS = relPosition / 1000;
     const windowStartS = Math.max(0, relPosition - windowMs) / 1000;
     const totalS = spanMs / 1000;
 
     return (
-      <div className="flex items-center space-x-3 py-2">
+      <div className="flex items-center space-x-3 py-1">
         <input
           type="range"
-          min={Math.min(windowMs, spanMs)}
+          min={relMin}
           max={spanMs || 1}
           step={1}
           value={relPosition}
@@ -534,12 +629,12 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
               ? 'Drag to pan through the recorded history (or use the arrow keys)'
               : 'Not enough history recorded to pan yet'
           }
-          className="h-2 flex-1 cursor-pointer appearance-none rounded-lg bg-gray-200 disabled:cursor-default disabled:opacity-50 dark:bg-slate-700
+          className="h-2 min-w-0 flex-1 cursor-pointer appearance-none rounded-lg bg-gray-200 disabled:cursor-default disabled:opacity-50 dark:bg-slate-700
             [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary-500
             [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:cursor-pointer [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-primary-500"
         />
         <span
-          className="whitespace-nowrap text-xs tabular-nums text-gray-600 dark:text-gray-400"
+          className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-xs tabular-nums text-gray-600 dark:text-gray-400"
           title="Visible window, and the total length of the recorded history"
         >
           {bounds === null ? (
@@ -552,16 +647,16 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
           )}
         </span>
         <button
-          className="rounded-md border py-1 px-3 text-sm shadow-md transition-colors disabled:opacity-50 dark:border-slate-600"
+          className="rounded-md border border-gray-200 bg-gray-100 py-1 px-3 text-sm shadow-md transition-colors hover:bg-gray-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-opacity-30 disabled:opacity-50 disabled:hover:bg-gray-100 dark:border-slate-600 dark:bg-slate-700 dark:hover:bg-slate-600 dark:disabled:hover:bg-slate-700"
           onClick={this.goLive}
-          disabled={this.state.scrubMs === null}
+          disabled={replayMode ? atEnd : this.state.scrubMs === null}
           title={
-            this.noOpmodeRunning(this.props)
+            replayMode
               ? 'Jump to the end of the recording'
               : 'Return to the live end of the graph'
           }
         >
-          {this.noOpmodeRunning(this.props) ? 'End' : 'Live'}
+          {replayMode ? 'End' : 'Live'}
         </button>
       </div>
     );
@@ -690,7 +785,9 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
                 <div
                   className="flex h-full flex-col"
                   // focus the view so the arrow keys pan the graph
-                  onMouseDown={() => this.containerRef.current?.focus()}
+                  onMouseDown={() =>
+                    this.containerRef.current?.focus({ preventScroll: true })
+                  }
                 >
                   <div className="min-h-0 flex-1">
                     <GraphCanvas
@@ -709,6 +806,7 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
                       scrubMs={this.state.scrubMs}
                       runId={this.state.runId}
                       onTimeBounds={this.onTimeBounds}
+                      onShownTime={this.onShownTime}
                     />
                   </div>
                   {this.renderScrubber()}
