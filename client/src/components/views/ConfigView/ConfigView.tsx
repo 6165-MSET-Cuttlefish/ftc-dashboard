@@ -74,16 +74,29 @@ function validAndModified(state: ConfigVarState): ConfigVar | null {
 }
 
 const PINNED_STORAGE_KEY = 'pinnedConfigOpModes';
+// The storage event only reaches other tabs, so instances sharing this document
+// are notified directly.
+const PINNED_CHANGE_EVENT = 'pinnedConfigOpModesChange';
 
 function loadPinned(): string[] {
   try {
-    const stored = JSON.parse(
-      localStorage.getItem(PINNED_STORAGE_KEY) ?? '[]',
-    );
-    return Array.isArray(stored) ? stored.filter((k) => typeof k === 'string') : [];
+    const stored = JSON.parse(localStorage.getItem(PINNED_STORAGE_KEY) ?? '[]');
+    return Array.isArray(stored)
+      ? stored.filter((k) => typeof k === 'string')
+      : [];
   } catch {
     return [];
   }
+}
+
+function savePinned(keys: string[]): boolean {
+  try {
+    localStorage.setItem(PINNED_STORAGE_KEY, JSON.stringify(keys));
+  } catch {
+    return false;
+  }
+  window.dispatchEvent(new Event(PINNED_CHANGE_EVENT));
+  return true;
 }
 
 type ConfigViewProps = BaseViewProps & BaseViewHeadingProps;
@@ -118,17 +131,40 @@ const ConfigView = ({
   // Pinned op mode categories, persisted per user across sessions
   const [pinnedKeys, setPinnedKeys] = useState<string[]>(loadPinned);
 
+  useEffect(() => {
+    const syncPinned = () => setPinnedKeys(loadPinned());
+    const onStorage = (evt: StorageEvent) => {
+      if (evt.key === null || evt.key === PINNED_STORAGE_KEY) {
+        syncPinned();
+      }
+    };
+
+    window.addEventListener('storage', onStorage);
+    window.addEventListener(PINNED_CHANGE_EVENT, syncPinned);
+
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener(PINNED_CHANGE_EVENT, syncPinned);
+    };
+  }, []);
+
   const togglePin = (key: string) => {
-    const newPinned = pinnedKeys.includes(key)
-      ? pinnedKeys.filter((k) => k !== key)
-      : [...pinnedKeys, key];
-    setPinnedKeys(newPinned);
-    localStorage.setItem(PINNED_STORAGE_KEY, JSON.stringify(newPinned));
+    const toggled = (keys: string[]) =>
+      keys.includes(key) ? keys.filter((k) => k !== key) : [...keys, key];
+
+    const next = toggled(loadPinned());
+    if (savePinned(next)) {
+      setPinnedKeys(next);
+    } else {
+      // A write that failed leaves storage stale, so the in-memory list is the
+      // only one that reflects this session.
+      setPinnedKeys(toggled);
+    }
   };
 
   const clearAllPins = () => {
+    savePinned([]);
     setPinnedKeys([]);
-    localStorage.removeItem(PINNED_STORAGE_KEY);
   };
 
   // Helper function to check if a configuration variable has baseline modifications
@@ -209,11 +245,7 @@ const ConfigView = ({
         </BaseViewHeading>
         <BaseViewIcons>
           <BaseViewIconButton
-            title={
-              pinnedKeys.length > 0
-                ? 'Clear all pinned op modes'
-                : 'No pinned op modes'
-            }
+            title="Clear all pinned op modes"
             onClick={clearAllPins}
             disabled={pinnedKeys.length === 0}
             style={{

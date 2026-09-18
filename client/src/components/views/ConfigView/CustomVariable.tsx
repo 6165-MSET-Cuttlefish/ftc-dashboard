@@ -306,7 +306,7 @@ class CustomVariable extends Component<Props, State> {
                   'ml-1 transition-colors',
                   this.props.pinned
                     ? 'text-yellow-500 hover:text-yellow-600'
-                    : 'text-gray-300 hover:text-yellow-500 dark:text-slate-500 dark:hover:text-yellow-400',
+                    : 'text-gray-400 hover:text-yellow-500 dark:text-slate-500 dark:hover:text-yellow-400',
                 )}
                 onClick={(evt) => {
                   evt.stopPropagation();
