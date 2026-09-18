@@ -34,7 +34,7 @@ if (intake.justStarted()) {
 }
 ```
 
-Markers can be placed from the client as well: click anywhere on a graph, type a label, and press enter. Clicking a marker removes it. Markers are anchored to a moment in telemetry time, so they scroll along with the data and disappear once they leave the graph window.
+Markers can be placed from the client as well: click the plot to add a marker, type a label, and press Enter. Escape discards the marker instead, and clicking a marker removes it. Markers are anchored to a moment in telemetry time, so they scroll along with the data and disappear once they leave the graph window.
 
 Use `FtcDashboard#sendTelemetryPacket()` to dispatch complete packets.
 

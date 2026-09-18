@@ -290,7 +290,8 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
                   Press the upper-right button to graph selected keys over time
                 </p>
                 <p className="my-2 text-center text-sm opacity-75">
-                  Click the graph to mark a spot; click a marker to remove it
+                  Click the graph to add a marker, type a label and press Enter;
+                  click a marker to remove it
                 </p>
                 <h3 className="mt-6 font-medium">Telemetry to graph:</h3>
                 <div className="ml-3">
