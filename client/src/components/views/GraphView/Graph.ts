@@ -178,7 +178,7 @@ export function formatValue(value: number) {
   return `${parseFloat(value.toPrecision(6))}`;
 }
 
-export type HoverEntry = {
+type HoverEntry = {
   name: string;
   color: string;
   value: number;
@@ -188,8 +188,6 @@ export type HoverEntry = {
 };
 
 export type HoverInfo = {
-  // the hovered time, in telemetry time
-  timeMs: number;
   // cursor position, in CSS pixels relative to the canvas
   cursorX: number;
   cursorY: number;
@@ -540,7 +538,7 @@ export default class Graph {
 
     // don't report a value for a series that has no sample near the cursor
     // (e.g., one that stopped reporting partway through the window)
-    const maxDeltaMs = o.windowMs / 25;
+    const minDeltaMs = o.windowMs / 25;
 
     const entries: HoverEntry[] = [];
     let nearestName = '';
@@ -552,7 +550,14 @@ export default class Graph {
       if (ts.length === 0) continue;
 
       const i = nearestIndex(ts, timeMs);
-      if (Math.abs(ts[i] - timeMs) > maxDeltaMs) continue;
+
+      // a slowly updating series is never sampled near most of the cursor
+      // positions, so the tolerance also follows its own spacing
+      const prevDt = i > 0 ? ts[i] - ts[i - 1] : 0;
+      const nextDt = i + 1 < ts.length ? ts[i + 1] - ts[i] : 0;
+      const dt = (timeMs < ts[i] ? prevDt : nextDt) || prevDt || nextDt;
+
+      if (Math.abs(ts[i] - timeMs) > Math.max(minDeltaMs, 1.5 * dt)) continue;
 
       const sampleY = y + scale(vs[i], axis.min, axis.max, height, 0);
 
@@ -577,7 +582,6 @@ export default class Graph {
     entries.sort((a, b) => b.value - a.value);
 
     return {
-      timeMs,
       cursorX: cursor.x,
       cursorY: cursor.y,
       nearestName,

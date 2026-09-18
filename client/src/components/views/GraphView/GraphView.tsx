@@ -129,10 +129,15 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
 
   handleDocumentKeydown(evt: KeyboardEvent) {
     if (evt.code === 'Space' || evt.key === 'k') {
+      const userPaused = !this.state.userPaused;
+
       this.setState({
         ...this.state,
-        userPaused: !this.state.userPaused,
-        pausedTime: Date.now(),
+        userPaused,
+        pausedTime:
+          userPaused && !this.state.opmodePaused
+            ? Date.now()
+            : this.state.pausedTime,
       });
     }
   }

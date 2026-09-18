@@ -1,12 +1,9 @@
+import { useLayoutEffect, useRef, useState } from 'react';
 import clsx from 'clsx';
 
 import { formatValue, HoverInfo } from './Graph';
 
 const CURSOR_OFFSET = 14;
-// rough per-row and chrome heights, used to keep the tooltip on screen without
-// having to measure it after layout
-const ROW_HEIGHT = 18;
-const CHROME_HEIGHT = 16;
 
 type GraphTooltipProps = {
   hover: HoverInfo;
@@ -15,6 +12,15 @@ type GraphTooltipProps = {
   height: number;
 };
 
+type Size = {
+  width: number;
+  height: number;
+};
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), Math.max(min, max));
+}
+
 export default function GraphTooltip({
   hover,
   width,
@@ -22,26 +28,56 @@ export default function GraphTooltip({
 }: GraphTooltipProps) {
   const { cursorX, cursorY, entries, nearestName } = hover;
 
-  // flip to the other side of the cursor when close to the right edge
-  const flip = cursorX > width / 2;
+  const tooltipRef = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState<Size | null>(null);
 
-  const estHeight = entries.length * ROW_HEIGHT + CHROME_HEIGHT;
-  const top = Math.min(
-    Math.max(cursorY, estHeight / 2),
-    height - estHeight / 2,
-  );
+  useLayoutEffect(() => {
+    const tooltip = tooltipRef.current;
+    if (tooltip === null) return;
+
+    const measured = {
+      width: tooltip.offsetWidth,
+      height: tooltip.offsetHeight,
+    };
+
+    setSize((prev) =>
+      prev !== null &&
+      prev.width === measured.width &&
+      prev.height === measured.height
+        ? prev
+        : measured,
+    );
+  }, [entries]);
+
+  // the tooltip sits to the right of the cursor unless the whole box fits
+  // better on the left; either way it stays inside the container
+  const flip = size !== null && cursorX + CURSOR_OFFSET + size.width > width;
+  const left =
+    size === null
+      ? cursorX
+      : clamp(
+          flip ? cursorX - CURSOR_OFFSET - size.width : cursorX + CURSOR_OFFSET,
+          0,
+          width - size.width,
+        );
+  const top =
+    size === null
+      ? cursorY
+      : clamp(cursorY - size.height / 2, 0, height - size.height);
 
   return (
     <div
+      ref={tooltipRef}
       className={clsx(
         'pointer-events-none absolute z-10 rounded border py-1 px-2 shadow-lg',
         'border-gray-200 bg-white/95 text-gray-900',
         'dark:border-slate-600 dark:bg-slate-800/95 dark:text-slate-100',
       )}
       style={{
-        left: cursorX + (flip ? -CURSOR_OFFSET : CURSOR_OFFSET),
+        left,
         top,
-        transform: `translate(${flip ? '-100%' : '0'}, -50%)`,
+        // hidden until the first measurement lands, to avoid a visible jump
+        visibility: size === null ? 'hidden' : 'visible',
       }}
     >
       <table className="border-separate" style={{ borderSpacing: '0 1px' }}>

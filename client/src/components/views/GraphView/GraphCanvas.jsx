@@ -19,6 +19,9 @@ class GraphCanvas extends React.Component {
 
     this.unsubs = []; // unsub functions to be called to cleanup
 
+    // time of the frame currently on the canvas
+    this.lastRenderTimeMs = null;
+
     this.state = {
       graphEmpty: false,
       hover: null,
@@ -65,31 +68,16 @@ class GraphCanvas extends React.Component {
     if (graphIsDirty) this.renderGraph();
   }
 
-  // the animation loop is stopped while paused, so hovering has to redraw itself
-  renderPausedFrame() {
-    if (!this.graph) return;
-
-    this.setState({
-      graphEmpty: !this.graph.render(this.props.pausedTime),
-      hover: this.graph.getHover(),
-    });
-  }
-
-  handleMouseMove(evt) {
+  // the graph reports hover positions in canvas space; the tooltip is
+  // positioned in container space
+  measureContainer() {
     const canvas = this.canvasRef.current;
     const container = this.containerRef.current;
-    if (!this.graph || !canvas || !container) return;
+    if (!canvas || !container) return;
 
     const canvasRect = canvas.getBoundingClientRect();
     const containerRect = container.getBoundingClientRect();
 
-    this.graph.setCursor({
-      x: evt.clientX - canvasRect.left,
-      y: evt.clientY - canvasRect.top,
-    });
-
-    // the graph reports hover positions in canvas space; the tooltip is
-    // positioned in container space
     this.canvasOffset = {
       x: canvasRect.left - containerRect.left,
       y: canvasRect.top - containerRect.top,
@@ -99,8 +87,41 @@ class GraphCanvas extends React.Component {
       containerWidth: containerRect.width,
       containerHeight: containerRect.height,
     });
+  }
 
-    if (this.props.paused) this.renderPausedFrame();
+  // the animation loop is stopped while paused, so hovering has to redraw itself
+  renderPausedFrame() {
+    if (!this.graph) return;
+
+    this.measureContainer();
+
+    // rendering prunes samples that have fallen out of the window, so a frozen
+    // frame has to be redrawn at the time it was first drawn at
+    const time = this.lastRenderTimeMs ?? this.props.pausedTime;
+    this.lastRenderTimeMs = time;
+
+    this.setState({
+      graphEmpty: !this.graph.render(time),
+      hover: this.graph.getHover(),
+    });
+  }
+
+  handleMouseMove(evt) {
+    const canvas = this.canvasRef.current;
+    if (!this.graph || !canvas) return;
+
+    const canvasRect = canvas.getBoundingClientRect();
+
+    this.graph.setCursor({
+      x: evt.clientX - canvasRect.left,
+      y: evt.clientY - canvasRect.top,
+    });
+
+    if (this.props.paused) {
+      this.renderPausedFrame();
+    } else {
+      this.measureContainer();
+    }
   }
 
   handleMouseLeave() {
@@ -119,8 +140,11 @@ class GraphCanvas extends React.Component {
     if (this.props.paused) {
       this.requestId = 0;
     } else {
+      const time = Date.now();
+      this.lastRenderTimeMs = time;
+
       this.setState(() => ({
-        graphEmpty: !this.graph.render(Date.now()),
+        graphEmpty: !this.graph.render(time),
         hover: this.graph.getHover(),
       }));
 
@@ -144,8 +168,8 @@ class GraphCanvas extends React.Component {
           <AutoFitCanvas
             ref={this.canvasRef}
             onResize={() => {
-              if (this.graph && this.props.paused)
-                this.graph.render(this.props.pausedTime);
+              if (this.props.paused) this.renderPausedFrame();
+              else this.measureContainer();
             }}
           />
         </div>
