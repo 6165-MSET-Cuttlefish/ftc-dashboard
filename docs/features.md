@@ -171,3 +171,95 @@ int cameraMonitorViewId = hardwareMap.appContext.getResources().getIdentifier("c
 OpenCvWebcam camera = OpenCvCameraFactory.getInstance().createWebcam(hardwareMap.get(WebcamName.class, "Webcam 1"), cameraMonitorViewId);
 FtcDashboard.getInstance().startCameraStream(camera, 0);
 ```
+
+## Loop Time View
+
+The Loop Time view charts where an op mode's loop actually spends its time. It reads
+plain numeric telemetry, so it works with any timing you already report — but
+`LoopTimer` handles the bookkeeping for you.
+
+```java
+private final LoopTimer timer = new LoopTimer();
+
+@Override
+public void loop() {
+    timer.startLoop();
+
+    timer.beginSegment("sensors");
+    readSensors();
+
+    timer.beginSegment("vision");
+    processVision();
+
+    timer.beginSegment("drive");
+    updateDrive();
+
+    timer.endLoop();
+
+    TelemetryPacket packet = new TelemetryPacket();
+    timer.addTo(packet);
+    FtcDashboard.getInstance().sendTelemetryPacket(packet);
+}
+```
+
+Segments can also be scoped with try-with-resources:
+
+```java
+try (LoopTimer.Segment s = timer.segment("vision")) {
+    processVision();
+}
+```
+
+`addTo` writes one key per segment (`loop/sensors`, `loop/vision`, …) plus
+`loop/total` for the whole iteration, all in milliseconds. Loops usually run much
+faster than telemetry is sent, so each value is the mean across every loop since
+the last `addTo` — nothing between packets is dropped.
+
+In the dashboard, add a Loop Time view and open the gear icon:
+
+- **Auto-add matching** picks up every unused telemetry key containing the filter
+  text (`loop` by default) and claims a `.../total` key as the loop total rather
+  than as another slice.
+- Each segment gets a **label** and a **color** you can edit, and rows can be
+  reordered.
+- **Values are in** converts from nanoseconds, microseconds, or seconds if you
+  aren't reporting milliseconds.
+- **Budget (ms)** draws a target line on the history chart and turns the loop
+  readout red when you go over.
+- Setups are saved as named **profiles** in the browser. **Share** shows the
+  active profile as JSON so you can move it to another machine or hand it to a
+  teammate.
+
+The view shows the last loop's total, its mean, p95, max, and the derived rate;
+a stacked bar of the breakdown; a history chart; and a per-segment table. When a
+total key is configured, time the segments don't cover is called out as
+**Unaccounted**.
+
+## Color View
+
+The Color view shows what your I2C color sensors are seeing and compares it
+against colors you expect. It reads the same hardware tree the Hardware view
+uses, so it needs no extra robot code — just run the **Hardware** op mode with a
+color sensor in your configuration.
+
+Each sensor gets a swatch, its raw R/G/B/alpha counts, and hue/saturation/value.
+Raw counts depend on the device and its gain, so the gear icon offers a
+**Normalization** mode:
+
+- **Auto** scales to the brightest channel, keeping hue and saturation while
+  discarding brightness. This is usually the most stable way to tell game
+  elements apart, and is the default.
+- **8-bit** treats the raw counts as 0-255 directly.
+- **Alpha** divides by the sensor's brightness reading.
+- **Manual** divides by a value you choose.
+
+Under **Expected vs sensed**, each target color is shown butted up against the
+live reading, with the [CIEDE2000](https://en.wikipedia.org/wiki/Color_difference#CIEDE2000)
+difference (ΔE) between them. Roughly, ΔE under 1 is imperceptible, under 5 is a
+close match, and over 10 reads as clearly different. Targets within their
+tolerance are marked, and the closest one is highlighted.
+
+To tune a target, point the sensor at the real game element and press
+**Capture** — that sets the expected color to the current reading. Then lower
+each tolerance until only the intended element matches. Targets are saved in the
+browser.

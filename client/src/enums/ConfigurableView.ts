@@ -12,4 +12,6 @@ export enum ConfigurableView {
   GAMEPAD_VIEW,
   ERROR_VIEW,
   LIMELIGHT_VIEW,
+  COLOR_VIEW,
+  LOOP_TIME_VIEW,
 }

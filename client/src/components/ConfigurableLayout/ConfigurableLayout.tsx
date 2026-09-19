@@ -27,6 +27,8 @@ import HardwareConfigView from '@/components/views/HardwareConfigView/HardwareCo
 import GamepadView from '@/components/views/GamepadView';
 import ErrorView from '@/components/views/ErrorView/ErrorView';
 import LimelightView from '@/components/views/LimelightView';
+import ColorView from '@/components/views/ColorView';
+import LoopTimeView from '@/components/views/LoopTimeView';
 
 import RadialFab from './RadialFab/RadialFab';
 import RadialFabChild from './RadialFab/RadialFabChild';
@@ -78,6 +80,8 @@ const VIEW_MAP: { [key in ConfigurableView]: ReactElement } = {
   [ConfigurableView.GAMEPAD_VIEW]: <GamepadView />,
   [ConfigurableView.ERROR_VIEW]: <ErrorView />,
   [ConfigurableView.LIMELIGHT_VIEW]: <LimelightView />,
+  [ConfigurableView.COLOR_VIEW]: <ColorView />,
+  [ConfigurableView.LOOP_TIME_VIEW]: <LoopTimeView />,
 };
 
 const LOCAL_STORAGE_LAYOUT_KEY = 'configurableLayoutStorage';
