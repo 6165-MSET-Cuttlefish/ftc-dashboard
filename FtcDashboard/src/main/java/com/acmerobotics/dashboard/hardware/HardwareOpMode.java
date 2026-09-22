@@ -596,6 +596,11 @@ public class HardwareOpMode extends OpMode {
                 "Blue",
                 createVariableFromValue(
                         VariableType.READONLY_STRING, String.valueOf(colorSensor.blue())));
+        // Overall brightness; the Color view uses it to scale the raw counts.
+        stateVariable.putVariable(
+                "Alpha",
+                createVariableFromValue(
+                        VariableType.READONLY_STRING, String.valueOf(colorSensor.alpha())));
 
         // Additional handling for preferred methods implemented by common sensors i.e. Rev V3
         if (colorSensor instanceof NormalizedColorSensor) {
@@ -613,6 +618,10 @@ public class HardwareOpMode extends OpMode {
                     "Normalized Blue",
                     createVariableFromValue(
                             VariableType.READONLY_STRING, String.valueOf(reading.blue)));
+            stateVariable.putVariable(
+                    "Normalized Alpha",
+                    createVariableFromValue(
+                            VariableType.READONLY_STRING, String.valueOf(reading.alpha)));
         }
     }
 

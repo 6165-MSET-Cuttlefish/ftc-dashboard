@@ -1,6 +1,7 @@
 package com.acmerobotics.dashboard;
 
 import com.acmerobotics.dashboard.config.ValueProvider;
+import com.acmerobotics.dashboard.config.variable.CustomVariable;
 import com.acmerobotics.dashboard.message.Message;
 import com.acmerobotics.dashboard.message.redux.InitOpMode;
 import com.acmerobotics.dashboard.message.redux.ReceiveHardwareConfigList;
@@ -18,6 +19,8 @@ import java.util.stream.Collectors;
 
 public class TestDashboardInstance {
     private static TestDashboardInstance instance = new TestDashboardInstance();
+
+    static final String HARDWARE_CATEGORY = "__hardware__";
 
     static final String DEFAULT_OP_MODE_NAME = "$Stop$Robot$";
     TestOpModeManager opModeManager = new TestOpModeManager();
@@ -276,6 +279,23 @@ public class TestDashboardInstance {
             opModeManager.loop();
             Thread.yield();
         }
+    }
+
+    /**
+     * Mirrors {@code FtcDashboard.withHardwareRoot} so test op modes can publish fake hardware into
+     * the category the Hardware and Color views read from.
+     */
+    public void withHardwareRoot(CustomVariableConsumer function) {
+        core.withConfigRoot(
+                root -> {
+                    CustomVariable hardwareVar =
+                            (CustomVariable) root.getVariable(HARDWARE_CATEGORY);
+                    if (hardwareVar == null) {
+                        hardwareVar = new CustomVariable();
+                        root.putVariable(HARDWARE_CATEGORY, hardwareVar);
+                    }
+                    function.accept(hardwareVar);
+                });
     }
 
     public void addData(String x, Object o) {
