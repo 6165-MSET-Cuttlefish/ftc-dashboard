@@ -11,23 +11,9 @@ import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 
 /**
- * Publishes two fake I2C color sensors into the dashboard's hardware tree so the
- * Color view can be tested on a bare Control Hub with no sensor attached.
- *
- * <p>The variables written here are exactly the ones {@code HardwareOpMode}
- * produces for a real {@code ColorSensor} (Red/Green/Blue/Alpha, their
- * normalized counterparts, and a port), so the Color view sees identical data.
- *
- * <ul>
- *   <li><b>sweep</b> — walks around the hue circle once every
- *       {@link #SWEEP_PERIOD_S} seconds. Watch its swatch cycle and the
- *       expected-vs-sensed ΔE values rise and fall.</li>
- *   <li><b>fixed</b> — holds whatever {@code @Config} RGB you set in
- *       {@link #FIXED_R}/{@link #FIXED_G}/{@link #FIXED_B}. Point a default
- *       target's tolerance at it to see a MATCH.</li>
- * </ul>
- *
- * <p>When this op mode stops it removes the fake sensors again.
+ * Two fake color sensors, named as {@code HardwareOpMode} names them, for trying
+ * the Color view on a bare Control Hub: one sweeps the hue circle, one holds
+ * {@link #FIXED_R}/{@link #FIXED_G}/{@link #FIXED_B}. Removed on stop.
  */
 @Config
 @TeleOp(name = "Color View Demo", group = "dash-test")
@@ -38,17 +24,13 @@ public class ColorViewDemoOpMode extends LinearOpMode {
     public static int FIXED_G = 111;
     public static int FIXED_B = 235;
 
-    /**
-     * Simulated surface brightness, 0-1. Lower values stress normalization.
-     */
+    /** Simulated surface brightness, 0-1. Lower values stress normalization. */
     public static double BRIGHTNESS = 0.35;
 
-    /**
-     * Raw counts a REV Color Sensor V3 reports at full scale.
-     */
+    /** Raw count that the normalized readings report as 1.0. */
     private static final int FULL_SCALE = 4096;
 
-    private static final String CATEGORY = "Color Sensors";
+    private static final String CATEGORY = "Color Sensors (demo)";
     private static final String SWEEP = "sweep";
     private static final String FIXED = "fixed";
 
@@ -115,9 +97,7 @@ public class ColorViewDemoOpMode extends LinearOpMode {
         }
     }
 
-    /**
-     * Mirrors HardwareOpMode: state variables plus a hub port.
-     */
+    /** Mirrors HardwareOpMode: state variables plus a hub port. */
     private CustomVariable buildSensor(int[] rgb, String port) {
         CustomVariable sensor = buildState(rgb);
         sensor.putVariable("Control Hub Port", ro(port));
@@ -147,9 +127,6 @@ public class ColorViewDemoOpMode extends LinearOpMode {
         return Math.max(0, Math.min(255, v));
     }
 
-    /**
-     * Fully saturated, full-value hue to 8-bit RGB.
-     */
     private static int[] hueToRgb(double hue) {
         double h = hue / 60.0;
         double x = 1 - Math.abs(h % 2 - 1);

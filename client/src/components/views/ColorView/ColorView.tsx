@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
+import { useSelector } from 'react-redux';
 import clsx from 'clsx';
 
 import BaseView, {
@@ -10,6 +11,8 @@ import BaseView, {
   BaseViewProps,
 } from '@/components/views/BaseView';
 import usePersistentState from '@/hooks/usePersistentState';
+import OpModeStatus from '@/enums/OpModeStatus';
+import { RootState } from '@/store/reducers';
 
 import { ReactComponent as SettingsIcon } from '@/assets/icons/settings.svg';
 
@@ -20,24 +23,31 @@ import {
   SETTINGS_STORAGE_KEY,
   EXPECTED_COLOR_STORAGE_KEY,
   DEFAULT_EXPECTED,
+  MIN_DIVISOR,
   sanitizeExpected,
 } from './expectedColor';
-import useColorSensors, { displayColor } from './useColorSensors';
+import useColorSensors, {
+  ColorSensorReading,
+  displayColor,
+} from './useColorSensors';
+import inputClass from './inputClass';
 
 type ColorViewSettings = {
   mode: NormalizationMode;
   divisor: number;
+  sensorName: string | null;
 };
 
 const DEFAULT_SETTINGS: ColorViewSettings = {
   mode: 'auto',
   divisor: 1000,
+  sensorName: null,
 };
 
 function sanitizeSettings(raw: unknown): ColorViewSettings {
   if (typeof raw !== 'object' || raw === null) return DEFAULT_SETTINGS;
 
-  const { mode, divisor } = raw as Record<string, unknown>;
+  const { mode, divisor, sensorName } = raw as Record<string, unknown>;
   const validModes: NormalizationMode[] = ['auto', 'byte', 'alpha', 'manual'];
 
   return {
@@ -45,9 +55,12 @@ function sanitizeSettings(raw: unknown): ColorViewSettings {
       ? (mode as NormalizationMode)
       : DEFAULT_SETTINGS.mode,
     divisor:
-      typeof divisor === 'number' && Number.isFinite(divisor) && divisor > 0
+      typeof divisor === 'number' &&
+      Number.isFinite(divisor) &&
+      divisor >= MIN_DIVISOR
         ? divisor
         : DEFAULT_SETTINGS.divisor,
+    sensorName: typeof sensorName === 'string' ? sensorName : null,
   };
 }
 
@@ -58,6 +71,13 @@ const ColorView = ({
   isUnlocked = false,
 }: ColorViewProps) => {
   const sensors = useColorSensors();
+  const instanceId = useId();
+
+  const isStale = useSelector(
+    (state: RootState) =>
+      !state.socket.isConnected ||
+      state.status.activeOpModeStatus === OpModeStatus.STOPPED,
+  );
 
   const [settings, setSettings] = usePersistentState(
     SETTINGS_STORAGE_KEY,
@@ -72,13 +92,10 @@ const ColorView = ({
 
   const [showSettings, setShowSettings] = useState(false);
 
-  // Auto-select the first sensor
-  const selected = sensors[0] ?? null;
-
-  const selectedColor =
-    selected === null
-      ? null
-      : displayColor(selected, settings.mode, settings.divisor);
+  const selected: ColorSensorReading | null =
+    sensors.find((sensor) => sensor.name === settings.sensorName) ??
+    sensors[0] ??
+    null;
 
   return (
     <BaseView isUnlocked={isUnlocked}>
@@ -104,7 +121,7 @@ const ColorView = ({
           />
         )}
 
-        {sensors.length === 0 ? (
+        {selected === null ? (
           <div className="flex-center h-full py-8 text-center">
             <div>
               <p>No color sensors detected.</p>
@@ -114,13 +131,48 @@ const ColorView = ({
               </p>
             </div>
           </div>
-        ) : selected !== null && selectedColor !== null ? (
-          <ExpectedColorPanel
-            expected={expected}
-            onExpectedChange={setExpected}
-            sensed={selectedColor}
-          />
-        ) : null}
+        ) : (
+          <>
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              {sensors.length > 1 && (
+                <>
+                  <label
+                    className="text-xs uppercase tracking-wide text-gray-500 dark:text-slate-400"
+                    htmlFor={`${instanceId}-sensor`}
+                  >
+                    Sensor
+                  </label>
+                  <select
+                    id={`${instanceId}-sensor`}
+                    className={inputClass}
+                    value={selected.name}
+                    onChange={(e) =>
+                      setSettings({ ...settings, sensorName: e.target.value })
+                    }
+                  >
+                    {sensors.map((sensor) => (
+                      <option key={sensor.name} value={sensor.name}>
+                        {sensor.name}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              )}
+              <span className="font-mono text-xs text-gray-500 dark:text-slate-400">
+                {selected.name}
+                {selected.port !== null && ` - ${selected.port}`}
+              </span>
+            </div>
+
+            <ExpectedColorPanel
+              expected={expected}
+              onExpectedChange={setExpected}
+              sensed={displayColor(selected, settings.mode, settings.divisor)}
+              mode={settings.mode}
+              isStale={isStale}
+            />
+          </>
+        )}
       </BaseViewBody>
     </BaseView>
   );

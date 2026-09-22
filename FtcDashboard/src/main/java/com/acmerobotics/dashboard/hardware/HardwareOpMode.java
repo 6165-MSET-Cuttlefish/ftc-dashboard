@@ -103,6 +103,16 @@ public class HardwareOpMode extends OpMode {
                         });
     }
 
+    /**
+     * Drops the color sensor readings, which the Color view would otherwise go on presenting as a
+     * live match verdict. Nothing else clears the hardware tree between op modes.
+     */
+    @Override
+    public void stop() {
+        FtcDashboard.getInstance()
+                .withHardwareRoot(hardwareRoot -> hardwareRoot.removeVariable("Color Sensors"));
+    }
+
     /* -------------------- Initialization --------------------- */
 
     /**

@@ -17,6 +17,7 @@ export const SETTINGS_STORAGE_KEY = 'colorViewSettings';
 
 export const MIN_TOLERANCE = 0;
 export const MAX_TOLERANCE = 100;
+export const MIN_DIVISOR = 1;
 
 export const DEFAULT_EXPECTED: ExpectedColor = {
   hex: '#E02020',
@@ -34,10 +35,7 @@ export const COLOR_PRESETS: ColorPreset[] = [
   { label: 'Black', hex: '#000000' },
 ];
 
-/**
- * localStorage is user-writable and may hold data from an older build, so
- * every field is re-validated before it reaches the UI.
- */
+/** localStorage is user-writable, so every field is re-validated. */
 export function sanitizeExpected(raw: unknown): ExpectedColor {
   if (typeof raw !== 'object' || raw === null) return DEFAULT_EXPECTED;
 

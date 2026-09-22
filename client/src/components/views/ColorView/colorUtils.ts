@@ -120,16 +120,11 @@ export function rgbToHsv({ r, g, b }: RGB): HSV {
   };
 }
 
-/**
- * Relative luminance per WCAG 2.1, used to pick readable text over a swatch.
- */
-export function relativeLuminance({ r, g, b }: RGB): number {
-  const [rl, gl, bl] = [r, g, b].map(srgbToLinear);
-  return 0.2126 * rl + 0.7152 * gl + 0.0722 * bl;
-}
+/** Saturation below which a color is white, grey or black rather than a hue. */
+const ACHROMATIC_SATURATION = 0.1;
 
-export function readableTextColor(rgb: RGB): string {
-  return relativeLuminance(rgb) > 0.35 ? '#0f172a' : '#f8fafc';
+export function isAchromatic(rgb: RGB): boolean {
+  return rgbToHsv(rgb).s < ACHROMATIC_SATURATION;
 }
 
 function srgbToLinear(channel: number): number {
@@ -255,7 +250,7 @@ export type NormalizationMode = 'auto' | 'byte' | 'alpha' | 'manual';
 
 export const NORMALIZATION_LABELS: Record<NormalizationMode, string> = {
   auto: 'Auto (scale to brightest channel)',
-  byte: '8-bit (raw ÷ 255)',
+  byte: '8-bit (raw counts as 0-255)',
   alpha: 'Alpha (raw ÷ alpha)',
   manual: 'Manual divisor',
 };

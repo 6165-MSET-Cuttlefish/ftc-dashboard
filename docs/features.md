@@ -174,34 +174,26 @@ FtcDashboard.getInstance().startCameraStream(camera, 0);
 
 ## Color View
 
-The Color view shows what an I2C color sensor is seeing next to a color you
-expect it to match. It reads the same hardware tree the Hardware view uses, so
-it needs no extra robot code — just run the **Hardware** op mode with a color
-sensor in your configuration. When more than one is configured, the first
-sensor found is used.
+The Color view compares what an I2C color sensor reads against a color you
+expect, with no robot code of its own: run the **Hardware** op mode with a
+color sensor in your configuration. A picker appears when more than one sensor
+is published.
 
-Enter the expected color as a hex code, `rgb(r, g, b)`, or a bare `r, g, b`
-triple, or pick one of the built-in presets (Red, Orange, Yellow, Green, Blue,
-Purple, White, Black). Alongside it, set a tolerance in
-[CIEDE2000](https://en.wikipedia.org/wiki/Color_difference#CIEDE2000) units
-(ΔE) — roughly, ΔE under 1 is imperceptible, under 5 is a close match, and over
-10 reads as clearly different colors. A **Match** / **No match** badge shows
-whether the current reading is within tolerance, alongside Expected and Sensed
-swatches and a stats table (hex, R/G/B, hue, saturation, value).
+Enter the expected color as a hex code, `rgb(r, g, b)`, a bare `r, g, b` triple,
+or one of the built-in presets. The tolerance beside it is the largest
+[CIEDE2000](https://en.wikipedia.org/wiki/Color_difference#CIEDE2000)
+difference (ΔE) counted as a match: under 1 is imperceptible, over 10 is
+clearly different.
 
-Matching compares both colors scaled to the same peak channel, so a correct
-hue/saturation reading still matches even though ambient light and distance to
-the object change how bright the sensor's raw counts read.
+The gear icon picks how the raw counts map into 0-255:
 
-Raw counts also depend on the device and its gain, so the gear icon offers a
-**Normalization** mode:
+- **Auto** scales to the brightest channel. Ignoring brightness is the
+  steadiest way to tell game elements apart, so this is the default, but white,
+  grey and black all normalize to the same color.
+- **8-bit** takes the raw counts as 0-255.
+- **Alpha** divides them by the sensor's alpha reading. Like Auto, it cannot
+  tell white, grey and black apart.
+- **Manual** divides them by a value you choose.
 
-- **Auto** scales to the brightest channel, keeping hue and saturation while
-  discarding brightness. This is usually the most stable way to tell game
-  elements apart, and is the default.
-- **8-bit** treats the raw counts as 0-255 directly.
-- **Alpha** divides by the sensor's brightness reading.
-- **Manual** divides by a value you choose.
-
-The expected color, tolerance, and normalization mode are all saved in the
+The expected color, tolerance, sensor, mode and Manual divisor are saved in the
 browser.

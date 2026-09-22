@@ -40,6 +40,11 @@ spotless {
     }
 }
 
+tasks.register("runTestServer", JavaExec) {
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = "com.acmerobotics.dashboard.TestServer"
+}
+
 project.afterEvaluate {
     publishing {
         publications {
@@ -79,12 +84,4 @@ project.afterEvaluate {
             }
         }
     }
-}
-
-// Convenience entry point for running the mock dashboard server locally.
-tasks.register("runTestServer", JavaExec) {
-    group = "application"
-    description = "Runs the mock dashboard server on port 8000"
-    classpath = sourceSets.test.runtimeClasspath
-    mainClass = "com.acmerobotics.dashboard.TestServer"
 }

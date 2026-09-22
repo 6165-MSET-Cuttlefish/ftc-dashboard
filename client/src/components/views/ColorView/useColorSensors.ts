@@ -45,11 +45,7 @@ function readTriple(
   return { r, g, b };
 }
 
-/**
- * The port variable is named after the hub it hangs off of, e.g.
- * "Control Hub Port" or "Expansion Hub 2 Port", so it has to be found by
- * suffix rather than by an exact key.
- */
+/** Port keys carry their hub's name, e.g. "Expansion Hub 2 Port". */
 function readPort(value: Record<string, ConfigVarState>): string | null {
   const key = Object.keys(value).find((k) => k.endsWith(' Port'));
   if (key === undefined) return null;
@@ -81,11 +77,7 @@ function parseSensor(
   };
 }
 
-/**
- * Maps a reading onto a 0-255 triple suitable for display and comparison.
- * Prefers the device's own normalized output where the mode allows it, since
- * that is already corrected for the sensor's integration time.
- */
+/** Maps a reading onto a 0-255 triple suitable for display and comparison. */
 export function displayColor(
   sensor: ColorSensorReading,
   mode: NormalizationMode,
@@ -97,39 +89,46 @@ export function displayColor(
     case 'manual':
       return normalizeToDisplay(sensor.raw, 'manual', { divisor });
     case 'alpha':
-      return sensor.normalized !== null
-        ? normalizeToDisplay(sensor.normalized, 'alpha', {
+      // A REV V3's normalized alpha is a readable-brightness estimate rather
+      // than a channel scale, so only the raw pair divides sensibly.
+      return sensor.rawAlpha !== null
+        ? normalizeToDisplay(sensor.raw, 'alpha', { alpha: sensor.rawAlpha })
+        : normalizeToDisplay(sensor.normalized ?? sensor.raw, 'alpha', {
             alpha: sensor.normalizedAlpha,
-          })
-        : normalizeToDisplay(sensor.raw, 'alpha', { alpha: sensor.rawAlpha });
+          });
     case 'auto':
     default:
-      // Scaling to the brightest channel is ratio-preserving, so raw and
-      // normalized inputs land on the same color.
+      // Scaling to the peak channel preserves ratios, so both inputs agree.
       return normalizeToDisplay(sensor.normalized ?? sensor.raw, 'auto');
   }
 }
 
-/**
- * Pulls every color sensor the Hardware op mode has published out of the
- * hardware config tree. Returns an empty list when the op mode isn't running.
- */
+function parseCategory(category: ConfigVarState): ColorSensorReading[] {
+  if (category.__type !== 'custom' || category.__value === null) return [];
+
+  const sensors = category.__value;
+  return Object.keys(sensors)
+    .sort()
+    .map((name) => parseSensor(name, sensors[name]))
+    .filter((sensor): sensor is ColorSensorReading => sensor !== null);
+}
+
+/** Every color sensor published into the hardware config tree. */
 export default function useColorSensors(): ColorSensorReading[] {
-  const colorSensorRoot = useSelector((state: RootState) => {
+  const hardwareRoot = useSelector((state: RootState) => {
     const configRoot = state.config.configRoot as CustomVarState;
     const hardware = configRoot.__value?.[HARDWARE_CATEGORY];
     if (hardware === undefined || hardware.__type !== 'custom') return null;
 
-    const sensors = hardware.__value?.[COLOR_SENSOR_CATEGORY];
-    if (sensors === undefined || sensors.__type !== 'custom') return null;
-
-    return sensors.__value;
+    return hardware.__value;
   });
 
-  if (colorSensorRoot === null || colorSensorRoot === undefined) return [];
+  if (hardwareRoot === null || hardwareRoot === undefined) return [];
 
-  return Object.keys(colorSensorRoot)
+  // The demo op mode publishes under a suffixed category rather than overwrite
+  // the Hardware op mode's, so every category with this prefix is read.
+  return Object.keys(hardwareRoot)
+    .filter((category) => category.startsWith(COLOR_SENSOR_CATEGORY))
     .sort()
-    .map((name) => parseSensor(name, colorSensorRoot[name]))
-    .filter((sensor): sensor is ColorSensorReading => sensor !== null);
+    .flatMap((category) => parseCategory(hardwareRoot[category]));
 }

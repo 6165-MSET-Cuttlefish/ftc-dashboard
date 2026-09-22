@@ -1,12 +1,9 @@
+import { useEffect, useId, useState } from 'react';
 import clsx from 'clsx';
 
 import { NORMALIZATION_LABELS, NormalizationMode } from './colorUtils';
-
-const inputClass = clsx(
-  'rounded border border-gray-200 bg-gray-100 px-2 py-1 text-sm transition',
-  'focus:border-primary-500 focus:ring-primary-500',
-  'dark:border-slate-500/80 dark:bg-slate-700 dark:text-slate-200',
-);
+import { MIN_DIVISOR } from './expectedColor';
+import inputClass from './inputClass';
 
 type ColorSettingsProps = {
   mode: NormalizationMode;
@@ -21,15 +18,33 @@ const ColorSettings = ({
   divisor,
   onDivisorChange,
 }: ColorSettingsProps) => {
+  const instanceId = useId();
+  const [divisorDraft, setDivisorDraft] = useState(String(divisor));
+
+  useEffect(() => setDivisorDraft(String(divisor)), [divisor]);
+
+  const onDivisorInput = (value: string) => {
+    setDivisorDraft(value);
+
+    const parsed = Number(value);
+    if (
+      value.trim() !== '' &&
+      Number.isFinite(parsed) &&
+      parsed >= MIN_DIVISOR
+    ) {
+      onDivisorChange(parsed);
+    }
+  };
+
   return (
     <div className="mb-4 rounded border border-gray-200 p-3 dark:border-slate-700">
       <h3 className="mb-2 font-medium">Display</h3>
       <div className="flex flex-wrap items-center gap-2">
-        <label className="text-sm" htmlFor="color-normalization">
+        <label className="text-sm" htmlFor={`${instanceId}-normalization`}>
           Normalization
         </label>
         <select
-          id="color-normalization"
+          id={`${instanceId}-normalization`}
           className={inputClass}
           value={mode}
           onChange={(e) => onModeChange(e.target.value as NormalizationMode)}
@@ -44,11 +59,12 @@ const ColorSettings = ({
           <input
             className={clsx(inputClass, 'w-24')}
             type="number"
-            min={1}
+            min={MIN_DIVISOR}
             step={1}
             aria-label="Manual divisor"
-            value={divisor}
-            onChange={(e) => onDivisorChange(Number(e.target.value))}
+            value={divisorDraft}
+            onChange={(e) => onDivisorInput(e.target.value)}
+            onBlur={() => setDivisorDraft(String(divisor))}
           />
         )}
       </div>

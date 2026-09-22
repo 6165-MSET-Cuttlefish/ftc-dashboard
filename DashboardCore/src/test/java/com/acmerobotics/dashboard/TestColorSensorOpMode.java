@@ -8,22 +8,18 @@ import com.acmerobotics.dashboard.config.variable.VariableType;
 import com.acmerobotics.dashboard.testopmode.TestOpMode;
 
 /**
- * Drives the Color view without a robot. Publishes two fake I2C color sensors into the hardware
- * category using the same variable names {@code HardwareOpMode} uses, so the view sees exactly what
- * it would on a real Control Hub.
- *
- * <p>One sensor sweeps through the hue circle, the other steps between a few fixed colors so the
- * expected-vs-sensed matching can be checked against known targets.
+ * Drives the Color view without a robot: two fake I2C color sensors published under the variable
+ * names {@code HardwareOpMode} uses, one sweeping the hue circle and one stepping between fixed
+ * colors the expected-vs-sensed matching can be checked against.
  */
 public class TestColorSensorOpMode extends TestOpMode {
     private static final String CATEGORY = "Color Sensors";
     private static final String SWEEP_SENSOR = "sweepSensor";
     private static final String STEP_SENSOR = "stepSensor";
 
-    /** Raw counts a REV Color Sensor V3 reports at full scale. */
+    /** Raw count that the normalized readings report as 1.0. */
     private static final int FULL_SCALE = 4096;
 
-    /** Red, green, blue, yellow, purple, white. */
     private static final int[][] STEP_COLORS = {
         {224, 32, 32},
         {34, 178, 76},
@@ -88,6 +84,11 @@ public class TestColorSensorOpMode extends TestOpMode {
                 });
     }
 
+    @Override
+    protected void stop() {
+        dashboard.withHardwareRoot(hardwareRoot -> hardwareRoot.removeVariable(CATEGORY));
+    }
+
     private void updateSensor(CustomVariable sensors, String name, int[] rgb) {
         CustomVariable existing = (CustomVariable) sensors.getVariable(name);
         if (existing == null) {
@@ -105,8 +106,7 @@ public class TestColorSensorOpMode extends TestOpMode {
     }
 
     private CustomVariable buildState(int r, int g, int b) {
-        // Simulate a sensor reading a surface at partial brightness, which is
-        // what makes the view's normalization modes worth exercising.
+        // A surface at partial brightness, so the normalization modes differ.
         int rawR = r * FULL_SCALE / 255 / 3;
         int rawG = g * FULL_SCALE / 255 / 3;
         int rawB = b * FULL_SCALE / 255 / 3;
@@ -124,7 +124,6 @@ public class TestColorSensorOpMode extends TestOpMode {
         return state;
     }
 
-    /** Fully saturated, full value hue to 8-bit RGB. */
     private static int[] hueToRgb(double hue) {
         double h = hue / 60.0;
         double x = 1 - Math.abs(h % 2 - 1);
