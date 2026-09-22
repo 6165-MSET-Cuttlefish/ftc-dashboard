@@ -80,19 +80,12 @@ public class TelemetryPacket {
         log.clear();
     }
 
-    /**
-     * Marks the instant of this packet with a label. Markers appear as labeled vertical lines in
-     * the Graph View.
-     *
-     * @param label
-     */
+    /** Marks this packet's instant with a label, drawn as a vertical line in the Graph View. */
     public void addMarker(String label) {
         markers.add(label == null ? "" : label);
     }
 
-    /**
-     * Clears the markers in this packet.
-     */
+    /** Clears the markers in this packet. */
     public void clearMarkers() {
         markers.clear();
     }

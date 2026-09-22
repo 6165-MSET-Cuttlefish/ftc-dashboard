@@ -313,13 +313,19 @@ export default class Graph {
     }
   }
 
-  addMarker(t: number, label: string) {
-    if (isNaN(t)) return;
+  addMarker(t: number, label: string): Marker | null {
+    if (isNaN(t)) return null;
 
-    this.markers.push({ t, label });
+    const marker = { t, label };
+    this.markers.push(marker);
+
+    return marker;
   }
 
-  removeMarker(index: number) {
+  removeMarker(marker: Marker) {
+    const index = this.markers.indexOf(marker);
+    if (index === -1) return;
+
     this.markers.splice(index, 1);
   }
 
@@ -338,20 +344,26 @@ export default class Graph {
     );
   }
 
-  // index of the marker drawn closest to x, or -1 if none is within tolerance
+  // the marker drawn closest to x, or null if none is within tolerance
   // (both in CSS pixels relative to the canvas)
-  markerIndexAt(x: number, tolerance: number) {
-    if (this.plotRect.width === 0 || isNaN(this.graphNowMs)) return -1;
+  markerAt(x: number, tolerance: number): Marker | null {
+    if (this.plotRect.width === 0 || isNaN(this.graphNowMs)) return null;
 
-    let closest = -1;
+    const { x: plotX, width } = this.plotRect;
+
+    let closest: Marker | null = null;
     let closestDist = tolerance;
-    this.markers.forEach((marker, i) => {
-      const dist = Math.abs(this.markerXCoord(marker) - x);
-      if (dist > closestDist) return;
+    for (const marker of this.markers) {
+      const markerX = this.markerXCoord(marker);
+      // markers outside the plot are not drawn, so they cannot be hit
+      if (markerX < plotX || markerX > plotX + width) continue;
 
-      closest = i;
+      const dist = Math.abs(markerX - x);
+      if (dist > closestDist) continue;
+
+      closest = marker;
       closestDist = dist;
-    });
+    }
 
     return closest;
   }
