@@ -3,6 +3,8 @@ import clsx from 'clsx';
 
 import { ReactComponent as AddIcon } from '@/assets/icons/add.svg';
 import { ReactComponent as DeleteIcon } from '@/assets/icons/delete.svg';
+import { ValResult, validateDouble } from '@/components/inputs/validation';
+import TextInput from '@/components/views/ConfigView/inputs/TextInput';
 
 import {
   LoopProfile,
@@ -27,6 +29,12 @@ const buttonClass = clsx(
 );
 
 const SUM_OF_SEGMENTS = '__sum__';
+const NO_KEY = '__none__';
+
+function keyOptions(available: string[], excluded: (string | null)[]) {
+  const drop = new Set(excluded.filter((key): key is string => key !== null));
+  return available.filter((key) => !drop.has(key));
+}
 
 type ProfileEditorProps = {
   profiles: LoopProfile[];
@@ -52,17 +60,46 @@ const ProfileEditor = ({
   onImportProfile,
 }: ProfileEditorProps) => {
   const [prefix, setPrefix] = useState('loop');
+  const [budget, setBudget] = useState<{
+    id: string;
+    result: ValResult<number>;
+  }>({ id: active.id, result: { value: active.budgetMs, valid: true } });
   const [showTransfer, setShowTransfer] = useState(false);
   const [transferText, setTransferText] = useState('');
   const [transferError, setTransferError] = useState<string | null>(null);
 
-  // The loop total isn't a part of the loop, so it never offers itself as a
-  // segment — otherwise `LoopTimer`'s `<prefix>/total` gets auto-added and
-  // doubles the bar.
+  // Neither the loop total nor the worst loop is a slice of the loop, so they
+  // never offer themselves as segments.
   const usedKeys = new Set(active.segments.map((s) => s.key));
-  const unusedKeys = availableKeys.filter(
-    (key) => !usedKeys.has(key) && key !== active.totalKey,
-  );
+  const unusedKeys = keyOptions(availableKeys, [
+    active.totalKey,
+    active.worstKey,
+  ]).filter((key) => !usedKeys.has(key));
+
+  // Only an uncommitted entry is kept locally; anything committed comes from
+  // the store, which another view or tab may have changed since.
+  const budgetResult: ValResult<number> =
+    budget.id === active.id &&
+    !(budget.result.valid && budget.result.value >= 0)
+      ? budget.result
+      : { value: active.budgetMs, valid: true };
+  const budgetValid = budgetResult.valid && budgetResult.value >= 0;
+
+  const segmentKeys = active.segments.map((s) => s.key);
+
+  const totalKeyOptions = [
+    ...new Set([
+      ...keyOptions(availableKeys, [active.worstKey, ...segmentKeys]),
+      ...(active.totalKey === null ? [] : [active.totalKey]),
+    ]),
+  ].sort();
+
+  const worstKeyOptions = [
+    ...new Set([
+      ...keyOptions(availableKeys, [active.totalKey, ...segmentKeys]),
+      ...(active.worstKey === null ? [] : [active.worstKey]),
+    ]),
+  ].sort();
 
   const setSegments = (segments: LoopSegment[]) =>
     onChangeProfile({ ...active, segments });
@@ -91,18 +128,27 @@ const ProfileEditor = ({
     );
     if (matches.length === 0) return;
 
-    // `LoopTimer` publishes the whole loop as `<prefix>/total`. Claim it as the
-    // total rather than as another slice of the bar.
+    // `LoopTimer` publishes the whole loop as `<prefix>/total` and its worst
+    // iteration as `<prefix>/worst`. Neither is a slice of the bar.
     const totalMatch =
       active.totalKey === null
         ? matches.find((key) => /(^|[/.])total$/i.test(key)) ?? null
         : null;
+    const worstMatch =
+      active.worstKey === null
+        ? matches.find(
+            (key) => key !== totalMatch && /(^|[/.])worst$/i.test(key),
+          ) ?? null
+        : null;
 
-    const segmentKeys = matches.filter((key) => key !== totalMatch);
+    const segmentKeys = matches.filter(
+      (key) => key !== totalMatch && key !== worstMatch,
+    );
 
     onChangeProfile({
       ...active,
       totalKey: totalMatch ?? active.totalKey,
+      worstKey: worstMatch ?? active.worstKey,
       segments: [
         ...active.segments,
         ...segmentKeys.map((key, i) =>
@@ -260,35 +306,46 @@ const ProfileEditor = ({
             }
           >
             <option value={SUM_OF_SEGMENTS}>Sum of segments</option>
-            {[
-              ...new Set(
-                active.totalKey === null
-                  ? availableKeys
-                  : [...availableKeys, active.totalKey],
-              ),
-            ]
-              .sort()
-              .map((key) => (
-                <option key={key} value={key}>
-                  {key}
-                </option>
-              ))}
+            {totalKeyOptions.map((key) => (
+              <option key={key} value={key}>
+                {key}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          Worst loop
+          <select
+            className={inputClass}
+            value={active.worstKey ?? NO_KEY}
+            onChange={(e) =>
+              onChangeProfile({
+                ...active,
+                worstKey: e.target.value === NO_KEY ? null : e.target.value,
+              })
+            }
+          >
+            <option value={NO_KEY}>Not reported</option>
+            {worstKeyOptions.map((key) => (
+              <option key={key} value={key}>
+                {key}
+              </option>
+            ))}
           </select>
         </label>
         <label className="flex items-center gap-2 text-sm">
           Budget (ms)
-          <input
-            className={clsx(inputClass, 'w-20')}
-            type="number"
-            min={0}
-            step={1}
-            value={active.budgetMs}
-            onChange={(e) =>
-              onChangeProfile({
-                ...active,
-                budgetMs: Math.max(0, Number(e.target.value)),
-              })
-            }
+          <TextInput
+            key={active.id}
+            value={budgetResult.value}
+            valid={budgetValid}
+            validate={validateDouble}
+            onChange={(result) => {
+              setBudget({ id: active.id, result });
+              if (result.valid && result.value >= 0) {
+                onChangeProfile({ ...active, budgetMs: result.value });
+              }
+            }}
           />
         </label>
       </div>
@@ -354,8 +411,19 @@ const ProfileEditor = ({
           </thead>
           <tbody>
             {active.segments.map((segment, index) => {
-              const keyOptions = [
-                ...new Set([...availableKeys, segment.key]),
+              // A key in two rows would double-count it, so each row offers
+              // only the keys no other row and neither readout has claimed.
+              const rowOptions = [
+                ...new Set([
+                  ...keyOptions(availableKeys, [
+                    active.totalKey,
+                    active.worstKey,
+                    ...active.segments
+                      .filter((s) => s.id !== segment.id)
+                      .map((s) => s.key),
+                  ]),
+                  segment.key,
+                ]),
               ].sort();
 
               return (
@@ -396,7 +464,7 @@ const ProfileEditor = ({
                         })
                       }
                     >
-                      {keyOptions.map((key) => (
+                      {rowOptions.map((key) => (
                         <option key={key} value={key}>
                           {key}
                         </option>
@@ -447,7 +515,7 @@ const ProfileEditor = ({
       {availableKeys.length === 0 && (
         <p className="mt-2 flex items-center gap-1 text-xs text-gray-500 dark:text-slate-400">
           <AddIcon className="h-3 w-3" />
-          No numeric telemetry seen yet — start an op mode that reports timings.
+          No numeric telemetry seen yet. Start an op mode that reports timings.
         </p>
       )}
     </div>

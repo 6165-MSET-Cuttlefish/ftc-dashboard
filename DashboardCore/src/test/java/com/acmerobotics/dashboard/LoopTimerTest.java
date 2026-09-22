@@ -2,177 +2,116 @@ package com.acmerobotics.dashboard;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.acmerobotics.dashboard.telemetry.LoopTimer;
 import com.acmerobotics.dashboard.telemetry.TelemetryPacket;
 import com.google.gson.JsonObject;
-import java.util.function.LongSupplier;
 import org.junit.jupiter.api.Test;
 
 public class LoopTimerTest {
-    private static final double EPSILON = 1e-6;
-    private static final long MILLI = 1_000_000L;
+    private long nanos;
+    private final LoopTimer timer = new LoopTimer("auto", () -> nanos);
 
-    /** Nanosecond clock the test advances by hand. */
-    private static class FakeClock implements LongSupplier {
-        private long nanos;
-
-        void advanceMillis(long millis) {
-            nanos += millis * MILLI;
-        }
-
-        @Override
-        public long getAsLong() {
-            return nanos;
-        }
+    private void advance(long millis) {
+        nanos += millis * 1_000_000L;
     }
 
     /** TelemetryPacket exposes its data only through serialization. */
-    private static JsonObject dataOf(TelemetryPacket packet) {
+    private JsonObject report() {
+        TelemetryPacket packet = new TelemetryPacket(false);
+        timer.addTo(packet);
         return DashboardCore.GSON.toJsonTree(packet).getAsJsonObject().getAsJsonObject("data");
     }
 
-    private static double millis(TelemetryPacket packet, String key) {
-        return Double.parseDouble(dataOf(packet).get(key).getAsString());
+    private static void assertMillis(double expected, JsonObject data, String key) {
+        double actual = Double.parseDouble(data.get("auto/" + key).getAsString());
+        assertEquals(expected, actual, 1e-6, key);
+    }
+
+    private void loopOf(long millis) {
+        timer.startLoop();
+        timer.beginSegment("work");
+        advance(millis);
+        timer.endLoop();
     }
 
     @Test
-    public void reportsEachSegmentAndTheTotal() {
-        FakeClock clock = new FakeClock();
-        LoopTimer timer = new LoopTimer("loop", clock);
+    public void splitsOneLoopIntoSegmentsAndTheWholeLoop() {
+        timer.startLoop();
+        advance(3);
+        timer.beginSegment("io");
+        advance(3);
+        timer.beginSegment("compute");
+        advance(1);
+        timer.beginSegment("io");
+        advance(4);
+        timer.endSegment();
+        advance(5);
+        timer.endLoop();
+
+        JsonObject data = report();
+        assertMillis(7, data, "io");
+        assertMillis(1, data, "compute");
+        assertMillis(16, data, "total");
+    }
+
+    @Test
+    public void reportsTheMeanAndWorstSinceTheLastReport() {
+        loopOf(10);
+        loopOf(30);
+        loopOf(20);
+        assertEquals(3, timer.getLoopCount());
+        assertEquals(20.0, timer.getMeanLoopMillis(), 1e-6);
+        assertEquals(30.0, timer.getWorstLoopMillis(), 1e-6);
+
+        JsonObject data = report();
+        assertMillis(20, data, "work");
+        assertMillis(20, data, "total");
+        assertMillis(30, data, "worst");
+        assertEquals(0, report().size());
+
+        loopOf(5);
+        data = report();
+        assertMillis(5, data, "work");
+        assertMillis(5, data, "total");
+        assertMillis(5, data, "worst");
+    }
+
+    @Test
+    public void dropsAnAbandonedLoopAndReportClosesAnOpenOne() {
+        timer.startLoop();
+        timer.beginSegment("sensors");
+        advance(2);
+        timer.beginSegment("vision");
+        advance(6);
 
         timer.startLoop();
         timer.beginSegment("sensors");
-        clock.advanceMillis(2);
-        timer.beginSegment("vision");
-        clock.advanceMillis(8);
-        timer.beginSegment("drive");
-        clock.advanceMillis(5);
-        timer.endLoop();
+        advance(2);
 
-        TelemetryPacket packet = new TelemetryPacket(false);
-        timer.addTo(packet);
-
-        assertEquals(2.0, millis(packet, "loop/sensors"), EPSILON);
-        assertEquals(8.0, millis(packet, "loop/vision"), EPSILON);
-        assertEquals(5.0, millis(packet, "loop/drive"), EPSILON);
-        assertEquals(15.0, millis(packet, "loop/total"), EPSILON);
+        JsonObject data = report();
+        assertMillis(2, data, "sensors");
+        assertMillis(2, data, "total");
+        assertFalse(data.has("auto/vision"));
     }
 
     @Test
-    public void averagesEveryLoopSinceTheLastReport() {
-        FakeClock clock = new FakeClock();
-        LoopTimer timer = new LoopTimer("loop", clock);
-
-        // 10 ms of work, then 20 ms of the same work.
-        for (long millis : new long[] {10, 20}) {
-            timer.startLoop();
-            timer.beginSegment("work");
-            clock.advanceMillis(millis);
-            timer.endLoop();
-        }
-
-        assertEquals(2, timer.getLoopCount());
-        assertEquals(15.0, timer.getMeanLoopMillis(), EPSILON);
-        assertEquals(20.0, timer.getWorstLoopMillis(), EPSILON);
-
-        TelemetryPacket packet = new TelemetryPacket(false);
-        timer.addTo(packet);
-
-        assertEquals(15.0, millis(packet, "loop/work"), EPSILON);
-    }
-
-    @Test
-    public void countsTimeOutsideAnySegmentAsUnaccounted() {
-        FakeClock clock = new FakeClock();
-        LoopTimer timer = new LoopTimer("loop", clock);
-
-        timer.startLoop();
-        clock.advanceMillis(3); // before the first segment
-        timer.beginSegment("work");
-        clock.advanceMillis(4);
-        timer.endSegment();
-        clock.advanceMillis(5); // after the last segment
-        timer.endLoop();
-
-        TelemetryPacket packet = new TelemetryPacket(false);
-        timer.addTo(packet);
-
-        assertEquals(4.0, millis(packet, "loop/work"), EPSILON);
-        // The total covers the whole iteration, so 8 ms shows as unaccounted.
-        assertEquals(12.0, millis(packet, "loop/total"), EPSILON);
-    }
-
-    @Test
-    public void reusingASegmentNameAccumulates() {
-        FakeClock clock = new FakeClock();
-        LoopTimer timer = new LoopTimer("loop", clock);
-
-        timer.startLoop();
-        timer.beginSegment("io");
-        clock.advanceMillis(3);
-        timer.beginSegment("compute");
-        clock.advanceMillis(1);
-        timer.beginSegment("io");
-        clock.advanceMillis(4);
-        timer.endLoop();
-
-        TelemetryPacket packet = new TelemetryPacket(false);
-        timer.addTo(packet);
-
-        assertEquals(7.0, millis(packet, "loop/io"), EPSILON);
-    }
-
-    @Test
-    public void tryWithResourcesTimesTheBlock() {
-        FakeClock clock = new FakeClock();
-        LoopTimer timer = new LoopTimer("loop", clock);
-
+    public void tryWithResourcesEndsTheSegmentWithTheBlock() {
         timer.startLoop();
         try (LoopTimer.Segment segment = timer.segment("vision")) {
-            clock.advanceMillis(6);
+            advance(6);
         }
+        advance(4);
         timer.endLoop();
 
-        TelemetryPacket packet = new TelemetryPacket(false);
-        timer.addTo(packet);
-
-        assertEquals(6.0, millis(packet, "loop/vision"), EPSILON);
+        assertMillis(6, report(), "vision");
     }
 
     @Test
-    public void reportingStartsAFreshWindow() {
-        FakeClock clock = new FakeClock();
-        LoopTimer timer = new LoopTimer("loop", clock);
-
-        timer.startLoop();
-        timer.beginSegment("work");
-        clock.advanceMillis(10);
-        timer.endLoop();
-
-        timer.addTo(new TelemetryPacket(false));
-        assertEquals(0, timer.getLoopCount());
-
-        TelemetryPacket second = new TelemetryPacket(false);
-        timer.addTo(second);
-        assertFalse(dataOf(second).has("loop/work"));
-    }
-
-    @Test
-    public void honorsACustomPrefix() {
-        FakeClock clock = new FakeClock();
-        LoopTimer timer = new LoopTimer("auto", clock);
-
-        timer.startLoop();
-        timer.beginSegment("path");
-        clock.advanceMillis(1);
-        timer.endLoop();
-
-        TelemetryPacket packet = new TelemetryPacket(false);
-        timer.addTo(packet);
-
-        assertTrue(dataOf(packet).has("auto/path"));
-        assertTrue(dataOf(packet).has("auto/total"));
+    public void rejectsTheNamesItWritesItself() {
+        assertThrows(IllegalArgumentException.class, () -> timer.beginSegment("total"));
+        assertThrows(IllegalArgumentException.class, () -> timer.beginSegment("worst"));
+        assertThrows(IllegalArgumentException.class, () -> timer.segment("total"));
     }
 }

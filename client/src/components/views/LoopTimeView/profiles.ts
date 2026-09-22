@@ -1,3 +1,4 @@
+import twColors from 'tailwindcss/colors';
 import { v4 as uuidv4 } from 'uuid';
 
 export type TimeUnit = 'ns' | 'us' | 'ms' | 's';
@@ -21,7 +22,6 @@ const UNITS = Object.keys(UNIT_TO_MS) as TimeUnit[];
 
 export type LoopSegment = {
   id: string;
-  /** Telemetry key carrying this segment's duration. */
   key: string;
   label: string;
   /** Bar color as `#rrggbb`. */
@@ -32,11 +32,10 @@ export type LoopProfile = {
   id: string;
   name: string;
   unit: TimeUnit;
-  /**
-   * Telemetry key holding the whole loop's duration. When null the total is
-   * taken as the sum of the segments.
-   */
+  /** Telemetry key for the whole loop; null means sum the segments. */
   totalKey: string | null;
+  /** Key for the window's worst single loop, if the robot reports one. */
+  worstKey: string | null;
   /** Loop time target in ms; drives the over-budget warning. 0 disables it. */
   budgetMs: number;
   segments: LoopSegment[];
@@ -50,27 +49,24 @@ export type LoopProfileStore = {
 export const PROFILES_STORAGE_KEY = 'loopTimeProfiles';
 
 /** Distinct hues that stay legible against both themes. */
-export const SEGMENT_PALETTE = [
-  '#3B82F6',
-  '#F59E0B',
-  '#10B981',
-  '#EF4444',
-  '#8B5CF6',
-  '#EC4899',
-  '#14B8A6',
-  '#F97316',
-  '#6366F1',
-  '#84CC16',
+const SEGMENT_PALETTE = [
+  twColors.blue[500],
+  twColors.amber[500],
+  twColors.emerald[500],
+  twColors.red[500],
+  twColors.violet[500],
+  twColors.pink[500],
+  twColors.teal[500],
+  twColors.orange[500],
+  twColors.indigo[500],
+  twColors.lime[500],
 ];
 
-export function nextPaletteColor(used: number): string {
+function nextPaletteColor(used: number): string {
   return SEGMENT_PALETTE[used % SEGMENT_PALETTE.length];
 }
 
-/**
- * Turns a telemetry key into a readable label, e.g. `loop/vision` -> `vision`
- * and `loopDriveMs` -> `loopDriveMs`.
- */
+/** Turns a telemetry key into a label: `loop/vision` becomes `Vision`. */
 export function labelFromKey(key: string): string {
   const tail = key.split(/[/.]/).pop() ?? key;
   const trimmed = tail.replace(/[_-]/g, ' ').trim();
@@ -93,6 +89,7 @@ export function newProfile(name: string): LoopProfile {
     name,
     unit: 'ms',
     totalKey: null,
+    worstKey: null,
     budgetMs: 0,
     segments: [],
   };
@@ -125,35 +122,47 @@ function sanitizeSegment(raw: unknown): LoopSegment[] {
 function sanitizeProfile(raw: unknown): LoopProfile[] {
   if (typeof raw !== 'object' || raw === null) return [];
 
-  const { id, name, unit, totalKey, budgetMs, segments } = raw as Record<
-    string,
-    unknown
-  >;
+  const { id, name, unit, totalKey, worstKey, budgetMs, segments } =
+    raw as Record<string, unknown>;
+
+  const total =
+    typeof totalKey === 'string' && totalKey !== '' ? totalKey : null;
+  const worst =
+    typeof worstKey === 'string' && worstKey !== '' && worstKey !== total
+      ? worstKey
+      : null;
+
+  // A key used twice would count twice: shares pass 100% and the bar clips.
+  const claimed = new Set([total, worst].filter((key) => key !== null));
+  const parsed = (
+    Array.isArray(segments) ? segments.flatMap(sanitizeSegment) : []
+  ).filter((segment) => {
+    if (claimed.has(segment.key)) return false;
+    claimed.add(segment.key);
+    return true;
+  });
 
   return [
     {
       id: typeof id === 'string' && id !== '' ? id : uuidv4(),
       name: typeof name === 'string' && name !== '' ? name : 'Profile',
       unit: UNITS.includes(unit as TimeUnit) ? (unit as TimeUnit) : 'ms',
-      totalKey:
-        typeof totalKey === 'string' && totalKey !== '' ? totalKey : null,
+      totalKey: total,
+      worstKey: worst,
       budgetMs:
         typeof budgetMs === 'number' &&
         Number.isFinite(budgetMs) &&
         budgetMs > 0
           ? budgetMs
           : 0,
-      segments: Array.isArray(segments)
-        ? segments.flatMap(sanitizeSegment)
-        : [],
+      segments: parsed,
     },
   ];
 }
 
 /**
- * Re-validates the stored profiles. Runs against whatever JSON is in
- * localStorage, including imports pasted in by the user, so it must never
- * assume a shape.
+ * Re-validates the stored profiles. Runs against whatever JSON localStorage
+ * holds, including imports pasted in by the user, so it assumes no shape.
  */
 export function sanitizeStore(raw: unknown): LoopProfileStore {
   if (typeof raw !== 'object' || raw === null) return defaultStore();

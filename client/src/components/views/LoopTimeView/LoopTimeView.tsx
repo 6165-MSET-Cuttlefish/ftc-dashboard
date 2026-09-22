@@ -21,7 +21,7 @@ import BreakdownBar from './BreakdownBar';
 import ProfileEditor from './ProfileEditor';
 import Sparkline from './Sparkline';
 import computeStats, { formatMs } from './stats';
-import useLoopSamples from './useLoopSamples';
+import useLoopSamples, { DEFAULT_MAX_SAMPLES } from './useLoopSamples';
 import {
   LoopProfile,
   PROFILES_STORAGE_KEY,
@@ -70,7 +70,10 @@ const LoopTimeView = ({
   const [showSettings, setShowSettings] = useState(false);
   const [paused, setPaused] = useState(false);
 
-  const { samples, availableKeys, reset } = useLoopSamples(300, paused);
+  const { samples, availableKeys, reset } = useLoopSamples(
+    DEFAULT_MAX_SAMPLES,
+    paused,
+  );
 
   // sanitizeStore guarantees a non-empty profile list and a resolvable id.
   const active =
@@ -98,11 +101,12 @@ const LoopTimeView = ({
   const configuredKeys = [
     ...active.segments.map((s) => s.key),
     ...(active.totalKey === null ? [] : [active.totalKey]),
+    ...(active.worstKey === null ? [] : [active.worstKey]),
   ];
   const missingKeys = configuredKeys.filter(
     (key) => !availableKeys.includes(key),
   );
-  const isConfigured = configuredKeys.length > 0;
+  const isConfigured = active.segments.length > 0 || active.totalKey !== null;
 
   return (
     <BaseView isUnlocked={isUnlocked}>
@@ -188,7 +192,10 @@ const LoopTimeView = ({
               />
               <Summary label="Avg" value={formatMs(stats.meanTotal)} />
               <Summary label="p95" value={formatMs(stats.p95Total)} />
-              <Summary label="Max" value={formatMs(stats.maxTotal)} />
+              <Summary
+                label={stats.maxWorst === null ? 'Max' : 'Max (worst loop)'}
+                value={formatMs(stats.maxWorst ?? stats.maxTotal)}
+              />
               <Summary
                 label="Rate"
                 value={stats.hz === null ? '—' : `${stats.hz.toFixed(1)} Hz`}
@@ -251,7 +258,7 @@ const LoopTimeView = ({
                     </td>
                   </tr>
                 ))}
-                {stats.hasExplicitTotal && stats.unaccounted > 0 && (
+                {stats.hasUnaccounted && (
                   <tr className="border-t border-gray-100 dark:border-slate-800">
                     <td className="py-1">
                       <span className="flex items-center gap-2">

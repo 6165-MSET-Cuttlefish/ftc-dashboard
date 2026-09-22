@@ -4,10 +4,7 @@ import com.acmerobotics.dashboard.telemetry.LoopTimer;
 import com.acmerobotics.dashboard.telemetry.TelemetryPacket;
 import com.acmerobotics.dashboard.testopmode.TestOpMode;
 
-/**
- * Drives the Loop Time view without a robot. Simulates a loop made of four stages, one of which
- * spikes periodically so the breakdown visibly shifts.
- */
+/** Drives the Loop Time view without a robot: four stages, one spiking periodically. */
 public class TestLoopTimerOpMode extends TestOpMode {
     private LoopTimer timer;
     private TestDashboardInstance dashboard;
@@ -35,8 +32,6 @@ public class TestLoopTimerOpMode extends TestOpMode {
         busyWait(1.5 + 0.5 * Math.sin(iteration / 20.0));
 
         timer.beginSegment("vision");
-        // Every 40th iteration takes a long detour, the kind of spike that
-        // averages hide but the max column and sparkline should surface.
         busyWait(iteration % 40 == 0 ? 22 : 6);
 
         timer.beginSegment("control");
@@ -48,11 +43,10 @@ public class TestLoopTimerOpMode extends TestOpMode {
         timer.endLoop();
         iteration++;
 
-        // Report at roughly the rate a real op mode sends telemetry, so the
-        // view exercises the "mean over many loops" path.
+        // Report at the rate a real op mode does, so the view sees a mean over many loops.
         long now = System.currentTimeMillis();
         if (now - lastReport >= 50) {
-            TelemetryPacket packet = new TelemetryPacket();
+            TelemetryPacket packet = new TelemetryPacket(false);
             timer.addTo(packet);
             dashboard.sendTelemetryPacket(packet);
             lastReport = now;
@@ -61,11 +55,10 @@ public class TestLoopTimerOpMode extends TestOpMode {
         Thread.sleep(1);
     }
 
-    /** Burns CPU for approximately the given number of milliseconds. */
     private static void busyWait(double millis) {
         long deadline = System.nanoTime() + (long) (millis * 1e6);
         while (System.nanoTime() < deadline) {
-            // Spin; the point is to consume wall clock the way real work does.
+            // Spin.
         }
     }
 }
