@@ -171,3 +171,65 @@ int cameraMonitorViewId = hardwareMap.appContext.getResources().getIdentifier("c
 OpenCvWebcam camera = OpenCvCameraFactory.getInstance().createWebcam(hardwareMap.get(WebcamName.class, "Webcam 1"), cameraMonitorViewId);
 FtcDashboard.getInstance().startCameraStream(camera, 0);
 ```
+## Loop Time View
+
+The Loop Time view charts where an op mode's loop actually spends its time. It reads
+plain numeric telemetry, so it works with any timing you already report — but
+`LoopTimer` handles the bookkeeping for you.
+
+```java
+private final LoopTimer timer = new LoopTimer();
+
+@Override
+public void loop() {
+    timer.startLoop();
+
+    timer.beginSegment("sensors");
+    readSensors();
+
+    timer.beginSegment("vision");
+    processVision();
+
+    timer.beginSegment("drive");
+    updateDrive();
+
+    timer.endLoop();
+
+    TelemetryPacket packet = new TelemetryPacket();
+    timer.addTo(packet);
+    FtcDashboard.getInstance().sendTelemetryPacket(packet);
+}
+```
+
+Segments can also be scoped with try-with-resources:
+
+```java
+try (LoopTimer.Segment s = timer.segment("vision")) {
+    processVision();
+}
+```
+
+`addTo` writes one key per segment (`loop/sensors`, `loop/vision`, …) plus
+`loop/total` for the whole iteration, all in milliseconds. Loops usually run much
+faster than telemetry is sent, so each value is the mean across every loop since
+the last `addTo` — nothing between packets is dropped.
+
+In the dashboard, add a Loop Time view and open the gear icon:
+
+- **Auto-add matching** picks up every unused telemetry key containing the filter
+  text (`loop` by default) and claims a `.../total` key as the loop total rather
+  than as another slice.
+- Each segment gets a **label** and a **color** you can edit, and rows can be
+  reordered.
+- **Values are in** converts from nanoseconds, microseconds, or seconds if you
+  aren't reporting milliseconds.
+- **Budget (ms)** draws a target line on the history chart and turns the loop
+  readout red when you go over.
+- Setups are saved as named **profiles** in the browser. **Share** shows the
+  active profile as JSON so you can move it to another machine or hand it to a
+  teammate.
+
+The view shows the last loop's total, its mean, p95, max, and the derived rate;
+a stacked bar of the breakdown; a history chart; and a per-segment table. When a
+total key is configured, time the segments don't cover is called out as
+**Unaccounted**.
