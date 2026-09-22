@@ -2,6 +2,7 @@ package com.acmerobotics.dashboard;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.acmerobotics.dashboard.telemetry.LoopTimer;
@@ -65,7 +66,6 @@ public class LoopTimerTest {
         FakeClock clock = new FakeClock();
         LoopTimer timer = new LoopTimer("loop", clock);
 
-        // 10 ms of work, then 20 ms of the same work.
         for (long millis : new long[] {10, 20}) {
             timer.startLoop();
             timer.beginSegment("work");
@@ -157,6 +157,87 @@ public class LoopTimerTest {
         TelemetryPacket second = new TelemetryPacket(false);
         timer.addTo(second);
         assertFalse(dataOf(second).has("loop/work"));
+    }
+
+    @Test
+    public void discardsAnIterationThatNeverEnds() {
+        FakeClock clock = new FakeClock();
+        LoopTimer timer = new LoopTimer("loop", clock);
+
+        timer.startLoop();
+        timer.beginSegment("sensors");
+        clock.advanceMillis(2);
+        timer.beginSegment("vision");
+        clock.advanceMillis(6);
+
+        timer.startLoop();
+        timer.beginSegment("sensors");
+        clock.advanceMillis(2);
+        timer.beginSegment("vision");
+        clock.advanceMillis(6);
+        timer.beginSegment("control");
+        clock.advanceMillis(2);
+        timer.endLoop();
+
+        TelemetryPacket packet = new TelemetryPacket(false);
+        timer.addTo(packet);
+
+        assertEquals(2.0, millis(packet, "loop/sensors"), EPSILON);
+        assertEquals(6.0, millis(packet, "loop/vision"), EPSILON);
+        assertEquals(2.0, millis(packet, "loop/control"), EPSILON);
+        assertEquals(10.0, millis(packet, "loop/total"), EPSILON);
+    }
+
+    @Test
+    public void reportingClosesAnOpenLoop() {
+        FakeClock clock = new FakeClock();
+        LoopTimer timer = new LoopTimer("loop", clock);
+
+        timer.startLoop();
+        timer.beginSegment("work");
+        clock.advanceMillis(9);
+
+        TelemetryPacket packet = new TelemetryPacket(false);
+        timer.addTo(packet);
+
+        assertEquals(9.0, millis(packet, "loop/work"), EPSILON);
+        assertEquals(9.0, millis(packet, "loop/total"), EPSILON);
+    }
+
+    @Test
+    public void rejectsSegmentNamesItWritesItself() {
+        LoopTimer timer = new LoopTimer("loop", new FakeClock());
+
+        assertThrows(IllegalArgumentException.class, () -> timer.beginSegment("total"));
+        assertThrows(IllegalArgumentException.class, () -> timer.beginSegment("worst"));
+        assertThrows(IllegalArgumentException.class, () -> timer.segment("total"));
+    }
+
+    @Test
+    public void reportsTheWorstLoopAndStartsOver() {
+        FakeClock clock = new FakeClock();
+        LoopTimer timer = new LoopTimer("loop", clock);
+
+        for (long millis : new long[] {10, 30, 20}) {
+            timer.startLoop();
+            timer.beginSegment("work");
+            clock.advanceMillis(millis);
+            timer.endLoop();
+        }
+
+        TelemetryPacket packet = new TelemetryPacket(false);
+        timer.addTo(packet);
+        assertEquals(20.0, millis(packet, "loop/total"), EPSILON);
+        assertEquals(30.0, millis(packet, "loop/worst"), EPSILON);
+
+        timer.startLoop();
+        timer.beginSegment("work");
+        clock.advanceMillis(5);
+        timer.endLoop();
+
+        TelemetryPacket second = new TelemetryPacket(false);
+        timer.addTo(second);
+        assertEquals(5.0, millis(second, "loop/worst"), EPSILON);
     }
 
     @Test

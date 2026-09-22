@@ -1,6 +1,12 @@
+import twColors from 'tailwindcss/colors';
+
 import { useTheme } from '@/hooks/useTheme';
 
 import { formatMs } from './stats';
+
+const BUDGET_COLOR = twColors.red[500];
+const LINE_COLOR_DARK = twColors.sky[400];
+const LINE_COLOR_LIGHT = twColors.blue[600];
 
 const WIDTH = 100;
 const HEIGHT = 28;
@@ -59,7 +65,7 @@ const Sparkline = ({ values, budgetMs }: SparklineProps) => {
             x2={WIDTH}
             y1={toY(budgetMs)}
             y2={toY(budgetMs)}
-            stroke="#EF4444"
+            stroke={BUDGET_COLOR}
             strokeWidth={0.5}
             strokeDasharray="2 2"
             vectorEffect="non-scaling-stroke"
@@ -68,7 +74,13 @@ const Sparkline = ({ values, budgetMs }: SparklineProps) => {
         <polyline
           points={points}
           fill="none"
-          stroke={overBudget ? '#EF4444' : isDarkMode ? '#38BDF8' : '#2563EB'}
+          stroke={
+            overBudget
+              ? BUDGET_COLOR
+              : isDarkMode
+              ? LINE_COLOR_DARK
+              : LINE_COLOR_LIGHT
+          }
           strokeWidth={1.5}
           strokeLinejoin="round"
           strokeLinecap="round"

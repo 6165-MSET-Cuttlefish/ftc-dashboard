@@ -2,9 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 type Listener = () => void;
 
-// Views can be added to a custom layout more than once, so every instance
-// sharing a key has to see the same value. Writes notify the other instances
-// directly; the `storage` event only fires for other tabs.
+// Instances of a view sharing a key notify each other directly; the `storage`
+// event only fires for other tabs.
 const listeners = new Map<string, Set<Listener>>();
 
 function subscribe(key: string, listener: Listener): () => void {
@@ -37,13 +36,7 @@ function read<T>(key: string, fallback: T, migrate?: (raw: unknown) => T): T {
   }
 }
 
-/**
- * `useState` backed by localStorage, kept in sync across every view instance
- * using the same key.
- *
- * @param migrate validates/upgrades whatever was previously stored. It runs on
- *   untrusted JSON, so it must tolerate any shape.
- */
+/** `useState` backed by localStorage; `migrate` runs on untrusted JSON. */
 export default function usePersistentState<T>(
   key: string,
   initialValue: T,
@@ -54,8 +47,6 @@ export default function usePersistentState<T>(
 
   const [value, setValue] = useState<T>(() => read(key, initialValue, migrate));
 
-  // Mirrors `value` so writes can compute the next state without running side
-  // effects inside a state updater.
   const valueRef = useRef(value);
   valueRef.current = value;
 
@@ -78,11 +69,14 @@ export default function usePersistentState<T>(
 
   useEffect(() => {
     const unsubscribe = subscribe(key, reload);
-    window.addEventListener('storage', reload);
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === null || event.key === key) reload();
+    };
+    window.addEventListener('storage', onStorage);
 
     return () => {
       unsubscribe();
-      window.removeEventListener('storage', reload);
+      window.removeEventListener('storage', onStorage);
     };
   }, [key, reload]);
 
@@ -100,6 +94,7 @@ export default function usePersistentState<T>(
         window.localStorage.setItem(key, JSON.stringify(next));
       } catch {
         // Private browsing or a full quota; keep the in-memory value.
+        return;
       }
       notify(key, reload);
     },

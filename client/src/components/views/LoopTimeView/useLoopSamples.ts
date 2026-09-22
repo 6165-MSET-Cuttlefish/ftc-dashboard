@@ -23,11 +23,8 @@ function numericValues(data: Record<string, string>): Record<string, number> {
 }
 
 /**
- * Accumulates a rolling window of numeric telemetry.
- *
- * The telemetry slice is replaced wholesale with each batch the robot sends,
- * so history has to be built up here. Packets are deduped by timestamp, and a
- * timestamp moving backwards is treated as a fresh op mode run.
+ * Rolling window of numeric telemetry, built here since each batch replaces
+ * the telemetry slice. An empty batch is the server clearing telemetry.
  */
 export default function useLoopSamples(
   maxSamples: number = DEFAULT_MAX_SAMPLES,
@@ -43,6 +40,7 @@ export default function useLoopSamples(
   const [availableKeys, setAvailableKeys] = useState<string[]>([]);
 
   const lastTimestamp = useRef(0);
+  const clearedWhilePaused = useRef(false);
   const pausedRef = useRef(paused);
   pausedRef.current = paused;
 
@@ -53,33 +51,26 @@ export default function useLoopSamples(
   }, []);
 
   useEffect(() => {
-    if (pausedRef.current) return;
-    if (packets.length === 0) return;
-
-    const newest = packets[packets.length - 1].timestamp;
-    // A restarted op mode rewinds the clock; drop the stale window.
-    if (newest < lastTimestamp.current) {
-      lastTimestamp.current = 0;
-      setSamples([]);
+    if (packets.length === 0) {
+      if (pausedRef.current) {
+        clearedWhilePaused.current = true;
+      } else {
+        reset();
+      }
+      return;
     }
 
-    const fresh = packets
-      .filter((packet) => packet.timestamp > lastTimestamp.current)
-      .map((packet) => ({
-        timestamp: packet.timestamp,
-        values: numericValues(packet.data),
-      }));
+    const batch = packets.map((packet) => ({
+      timestamp: packet.timestamp,
+      values: numericValues(packet.data),
+    }));
 
-    if (fresh.length === 0) return;
-
-    lastTimestamp.current = fresh[fresh.length - 1].timestamp;
-
-    setSamples((prev) => [...prev, ...fresh].slice(-maxSamples));
+    // Discovery runs while paused too, so the profile editor stays usable.
     setAvailableKeys((prev) => {
       const seen = new Set(prev);
       let changed = false;
 
-      for (const sample of fresh) {
+      for (const sample of batch) {
         for (const key of Object.keys(sample.values)) {
           if (seen.has(key)) continue;
           seen.add(key);
@@ -89,7 +80,28 @@ export default function useLoopSamples(
 
       return changed ? [...seen].sort() : prev;
     });
-  }, [packets, maxSamples]);
+
+    if (pausedRef.current) return;
+
+    if (clearedWhilePaused.current) {
+      clearedWhilePaused.current = false;
+      lastTimestamp.current = 0;
+      setSamples([]);
+    }
+
+    // Packets carry the robot's wall clock, which a time sync can move back.
+    const newest = batch[batch.length - 1].timestamp;
+    if (newest < lastTimestamp.current) lastTimestamp.current = 0;
+
+    const fresh = batch.filter(
+      (sample) => sample.timestamp > lastTimestamp.current,
+    );
+    if (fresh.length === 0) return;
+
+    lastTimestamp.current = fresh[fresh.length - 1].timestamp;
+
+    setSamples((prev) => [...prev, ...fresh].slice(-maxSamples));
+  }, [packets, maxSamples, reset]);
 
   return { samples, availableKeys, reset };
 }

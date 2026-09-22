@@ -3,7 +3,6 @@ import { LoopSample } from './useLoopSamples';
 
 export type SegmentStats = {
   segment: LoopSegment;
-  /** Milliseconds in the most recent sample, or null if the key was absent. */
   last: number | null;
   mean: number | null;
   max: number | null;
@@ -18,15 +17,21 @@ export type LoopStats = {
   meanTotal: number | null;
   maxTotal: number | null;
   p95Total: number | null;
-  /** Loop rate derived from the mean total, or null if it can't be derived. */
+  /** Worst single loop over the window, or null without a worst key. */
+  maxWorst: number | null;
   hz: number | null;
   segments: SegmentStats[];
   /** Loop time in the last sample not covered by any segment, in ms. */
   unaccounted: number;
-  /** True when a total key is configured, so unaccounted time is meaningful. */
-  hasExplicitTotal: boolean;
-  sampleCount: number;
+  hasUnaccounted: boolean;
 };
+
+// LoopTimer's total spans the clock reads between segments, so a loop that is
+// fully instrumented still leaves a sliver over.
+const MIN_UNACCOUNTED_SHARE = 0.005;
+
+// Below this, nearest-rank p95 lands on the last element and just repeats Max.
+const MIN_P95_SAMPLES = 20;
 
 function mean(values: number[]): number | null {
   if (values.length === 0) return null;
@@ -50,54 +55,70 @@ function percentile(values: number[], p: number): number | null {
 }
 
 /**
- * Reduces the sample window into the numbers the view renders. All outputs are
- * in milliseconds regardless of the unit the robot reports.
+ * Reduces the sample window into the numbers the view renders, all in
+ * milliseconds. Only samples carrying the profile's keys count, so other
+ * telemetry never blanks the breakdown, and a segment missing from a counted
+ * sample did not run in it: it contributes 0.
  */
 export default function computeStats(
   samples: LoopSample[],
   profile: LoopProfile,
 ): LoopStats {
   const scale = UNIT_TO_MS[profile.unit];
-  const { segments, totalKey } = profile;
+  const { segments, totalKey, worstKey } = profile;
 
   const segmentSeries = segments.map(() => [] as number[]);
   const totals: number[] = [];
+  const worsts: number[] = [];
+  let newest: LoopSample | null = null;
 
   for (const sample of samples) {
+    if (worstKey !== null) {
+      const raw = sample.values[worstKey];
+      if (raw !== undefined) worsts.push(raw * scale);
+    }
+
+    const counted =
+      totalKey === null
+        ? segments.some((segment) => sample.values[segment.key] !== undefined)
+        : sample.values[totalKey] !== undefined;
+    if (!counted) continue;
+    newest = sample;
+
     let segmentSum = 0;
-    let sawSegment = false;
 
     segments.forEach((segment, i) => {
       const raw = sample.values[segment.key];
-      if (raw === undefined) return;
-
-      const ms = raw * scale;
+      const ms = raw === undefined ? 0 : raw * scale;
       segmentSeries[i].push(ms);
       segmentSum += ms;
-      sawSegment = true;
     });
 
-    if (totalKey !== null) {
-      const raw = sample.values[totalKey];
-      if (raw !== undefined) totals.push(raw * scale);
-    } else if (sawSegment) {
-      totals.push(segmentSum);
-    }
+    totals.push(
+      totalKey === null ? segmentSum : sample.values[totalKey] * scale,
+    );
   }
 
-  const lastSample = samples[samples.length - 1];
+  const segmentLast = segments.map((segment) => {
+    const raw = newest?.values[segment.key];
+    return raw === undefined ? null : raw * scale;
+  });
+
+  const accountedLast = segmentLast.reduce<number>(
+    (acc, value) => acc + (value ?? 0),
+    0,
+  );
+
   const lastTotal = totals.length === 0 ? null : totals[totals.length - 1];
 
   const segmentStats: SegmentStats[] = segments.map((segment, i) => {
-    const series = segmentSeries[i];
-    const lastRaw = lastSample?.values[segment.key];
-    const last = lastRaw === undefined ? null : lastRaw * scale;
+    const last = segmentLast[i];
 
     return {
       segment,
       last,
-      mean: mean(series),
-      max: max(series),
+      mean: mean(segmentSeries[i]),
+      max: max(segmentSeries[i]),
       share:
         last === null || lastTotal === null || lastTotal <= 0
           ? 0
@@ -105,24 +126,25 @@ export default function computeStats(
     };
   });
 
-  const accountedLast = segmentStats.reduce(
-    (acc, stat) => acc + (stat.last ?? 0),
-    0,
-  );
   const meanTotal = mean(totals);
+  const unaccounted =
+    lastTotal === null ? 0 : Math.max(0, lastTotal - accountedLast);
 
   return {
     totals,
     lastTotal,
     meanTotal,
     maxTotal: max(totals),
-    p95Total: percentile(totals, 95),
+    p95Total: totals.length < MIN_P95_SAMPLES ? null : percentile(totals, 95),
+    maxWorst: max(worsts),
     hz: meanTotal !== null && meanTotal > 0 ? 1000 / meanTotal : null,
     segments: segmentStats,
-    unaccounted:
-      lastTotal === null ? 0 : Math.max(0, lastTotal - accountedLast),
-    hasExplicitTotal: totalKey !== null,
-    sampleCount: samples.length,
+    unaccounted,
+    hasUnaccounted:
+      totalKey !== null &&
+      lastTotal !== null &&
+      lastTotal > 0 &&
+      unaccounted / lastTotal > MIN_UNACCOUNTED_SHARE,
   };
 }
 

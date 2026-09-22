@@ -53,11 +53,10 @@ public class TestDashboardInstance {
                 String messageStr = DashboardCore.GSON.toJson(message);
                 send(messageStr);
             } catch (IOException e) {
-                // A client that went away shouldn't abort the broadcast to the
-                // clients that are still connected. DashboardCore#sendAll has no
-                // per-socket isolation and runs while holding the socket-list
-                // lock, so just mark this one dead — onClose does the removal.
+                // sendAll holds the socket-list lock, so a dead client is only
+                // marked here and removed by onClose.
                 closed = true;
+                System.err.println("dropping client: " + e.getMessage());
             }
         }
 

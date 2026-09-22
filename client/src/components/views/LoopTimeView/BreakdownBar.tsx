@@ -1,18 +1,19 @@
+import twColors from 'tailwindcss/colors';
+
 import { LoopStats, formatMs } from './stats';
 
-const UNACCOUNTED_COLOR = '#94A3B8';
+const UNACCOUNTED_COLOR = twColors.slate[400];
 
 type BreakdownBarProps = {
   stats: LoopStats;
 };
 
 /**
- * Stacked bar showing where the most recent loop's time went. Slices are sized
- * by their share of the loop total; anything the segments don't cover shows as
- * "unaccounted" when an explicit total key is configured.
+ * Stacked bar of where the most recent loop's time went, sized by share of the
+ * loop total, plus an "unaccounted" slice when stats.hasUnaccounted.
  */
 const BreakdownBar = ({ stats }: BreakdownBarProps) => {
-  const { lastTotal, segments, unaccounted, hasExplicitTotal } = stats;
+  const { lastTotal, segments, unaccounted, hasUnaccounted } = stats;
 
   const slices = segments
     .filter((stat) => stat.last !== null && stat.last > 0)
@@ -23,7 +24,7 @@ const BreakdownBar = ({ stats }: BreakdownBarProps) => {
       value: stat.last as number,
     }));
 
-  if (hasExplicitTotal && unaccounted > 0) {
+  if (hasUnaccounted) {
     slices.push({
       id: '__unaccounted__',
       label: 'Unaccounted',
