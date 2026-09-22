@@ -25,15 +25,12 @@ class GraphCanvas extends React.Component {
   componentDidMount() {
     this.graph = new Graph(this.canvasRef.current, this.props.options);
 
-    // draw once up front: with no telemetry arriving (op mode over) nothing
-    // would ever change props, leaving an empty canvas and no explanation
+    // no props change once the op mode is over, so draw now or nothing shows
     this.renderGraph();
   }
 
   componentWillUnmount() {
-    if (this.requestId) {
-      cancelAnimationFrame(this.requestId);
-    }
+    this.cancelPendingFrame();
   }
 
   // TODO: Regretably, the current design requires that this.graph.add() only be called
@@ -90,7 +87,16 @@ class GraphCanvas extends React.Component {
     this.props.onTimeBounds(bounds);
   }
 
+  cancelPendingFrame() {
+    if (this.requestId) {
+      cancelAnimationFrame(this.requestId);
+      this.requestId = 0;
+    }
+  }
+
   renderGraph() {
+    this.cancelPendingFrame();
+
     const time = this.props.paused ? this.props.pausedTime : Date.now();
 
     this.setState(() => ({
@@ -98,10 +104,19 @@ class GraphCanvas extends React.Component {
     }));
 
     if (this.props.paused) {
-      this.requestId = 0;
+      this.reportShownTime(time);
     } else {
       this.requestId = requestAnimationFrame(this.renderGraph);
     }
+  }
+
+  reportShownTime(time) {
+    if (!this.props.onShownTime) return;
+
+    const shownMs = this.graph.shownMs(time, this.props.scrubMs);
+    if (isNaN(shownMs)) return;
+
+    this.props.onShownTime(shownMs);
   }
 
   render() {
@@ -143,6 +158,7 @@ GraphCanvas.propTypes = {
   // changes to reset the recorded history (new op mode run)
   runId: PropTypes.number,
   onTimeBounds: PropTypes.func,
+  onShownTime: PropTypes.func,
 };
 
 export default GraphCanvas;
