@@ -104,7 +104,7 @@ const LAYOUT_DETAILS: { [key in Values<typeof LayoutPreset>]: Layout } = {
     ),
   },
   [LayoutPreset.LOG]: {
-    name: 'Log',
+    name: 'Logcat',
     content: (
       <TileGrid gridTemplate="220px calc(60% - 220px) 40% / 30% 40% 30%">
         <Tile row="1 / span 1" col={1}>

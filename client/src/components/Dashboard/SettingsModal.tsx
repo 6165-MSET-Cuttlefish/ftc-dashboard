@@ -6,8 +6,10 @@ import clsx from 'clsx';
 import { ReactComponent as PaletteIcon } from '@/assets/icons/palette.svg';
 import { ReactComponent as DarkIcon } from '@/assets/icons/dark_mode.svg';
 import { ReactComponent as LightIcon } from '@/assets/icons/light_mode.svg';
-import { ReactComponent as SubjectIcon } from '@/assets/icons/subject.svg';
+import { ReactComponent as TerminalIcon } from '@/assets/icons/terminal.svg';
 
+import TextInput from '@/components/views/ConfigView/inputs/TextInput';
+import { validateInt } from '@/components/inputs/validation';
 import { colors, Colors, useTheme, useThemeDispatch } from '@/hooks/useTheme';
 import { RootState } from '@/store/reducers';
 import { setMaxLogEntries } from '@/store/actions/logRecorder';
@@ -23,51 +25,42 @@ function MaxLogEntriesInput() {
   const maxEntries = useSelector(
     (state: RootState) => state.logRecorder.maxEntries,
   );
-  const [draft, setDraft] = useState(String(maxEntries));
+  const [pending, setPending] = useState(maxEntries);
+  const [isValid, setIsValid] = useState(true);
 
+  // Committing on blur rather than on every keystroke keeps a half-typed limit
+  // from trimming a recording that is still running.
   const commit = () => {
-    const parsed = parseInt(draft, 10);
-    if (!isNaN(parsed)) {
-      dispatch(setMaxLogEntries(parsed));
+    if (isValid) {
+      dispatch(setMaxLogEntries(pending));
     }
-    // Reflect the clamped/stored value (or reset an invalid draft)
-    setDraft((current) => {
-      const parsedCurrent = parseInt(current, 10);
-      return isNaN(parsedCurrent)
-        ? String(maxEntries)
-        : String(
-            Math.min(
-              MAX_MAX_RECORDED_ENTRIES,
-              Math.max(MIN_MAX_RECORDED_ENTRIES, parsedCurrent),
-            ),
-          );
-    });
   };
 
   return (
-    <div className="mt-3 flex items-center justify-between px-6">
+    <div
+      className="mt-3 flex items-center justify-between px-6"
+      onBlur={commit}
+    >
       <label htmlFor={id}>
         Max recorded log entries
         <span className="block text-xs text-gray-500 dark:text-slate-400">
-          Oldest Log View lines are dropped past this limit (
+          Oldest Logcat lines are dropped past this limit (
           {MIN_MAX_RECORDED_ENTRIES.toLocaleString()}–
           {MAX_MAX_RECORDED_ENTRIES.toLocaleString()})
         </span>
       </label>
-      <input
+      <TextInput
         id={id}
-        type="number"
-        min={MIN_MAX_RECORDED_ENTRIES}
-        max={MAX_MAX_RECORDED_ENTRIES}
-        className="w-28 rounded border border-gray-300 bg-white px-2 py-1 text-right dark:border-slate-500 dark:bg-slate-600"
-        value={draft}
-        onChange={(evt) => setDraft(evt.target.value)}
-        onBlur={commit}
-        onKeyDown={(evt) => {
-          if (evt.key === 'Enter') {
-            evt.currentTarget.blur();
+        value={maxEntries}
+        valid={isValid}
+        validate={validateInt}
+        onChange={(arg) => {
+          setIsValid(arg.valid);
+          if (arg.valid) {
+            setPending(arg.value);
           }
         }}
+        onSave={commit}
       />
     </div>
   );
@@ -206,11 +199,11 @@ export default function SettingsModal({
                     </div>
                   ))}
                 </fieldset>
-                {/* Logging */}
+                {/* Logcat */}
                 <div className="mt-5 flex items-center justify-between px-6">
                   <h3 className="text-xl font-bold">
-                    <SubjectIcon className="inline h-5 w-5 translate-y-[-1px] text-gray-800 dark:text-slate-200" />{' '}
-                    Logging
+                    <TerminalIcon className="inline h-5 w-5 translate-y-[-1px] text-gray-800 dark:text-slate-200" />{' '}
+                    Logcat
                   </h3>
                 </div>
                 <div className="w-[calc(100% - 0.75rem)] mx-3 mt-2 h-px bg-gray-300 dark:bg-slate-500" />
