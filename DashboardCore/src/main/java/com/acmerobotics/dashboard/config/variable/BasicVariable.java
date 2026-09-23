@@ -30,8 +30,19 @@ public class BasicVariable<T> extends ConfigVariable<T> {
         return provider.get();
     }
 
+    @SuppressWarnings({"unchecked", "rawtypes"})
     @Override
     public void update(ConfigVariable<T> newVariable) {
-        provider.set(newVariable.getValue());
+        T value = newVariable.getValue();
+        T current = provider.get();
+        // The incoming constant is resolved by class name, which can find a different copy of the
+        // enum class than the field's (e.g. under a hot-reloading class loader); match it by name.
+        if (type == VariableType.ENUM && value instanceof Enum && current instanceof Enum) {
+            Class target = ((Enum<?>) current).getDeclaringClass();
+            if (((Enum<?>) value).getDeclaringClass() != target) {
+                value = (T) Enum.valueOf(target, ((Enum<?>) value).name());
+            }
+        }
+        provider.set(value);
     }
 }
