@@ -28,7 +28,7 @@ public class DashboardTelemetry implements Telemetry {
         this.host = host;
     }
 
-    private static final String DEFAULT_CAPTION_VALUE_SEPARATOR = ": ";
+    private static final String DEFAULT_CAPTION_VALUE_SEPARATOR = " : ";
     private static final String DEFAULT_ITEM_SEPARATOR = " | ";
 
     // Items and lines share one list, so that they display in the order they were added.
@@ -43,7 +43,10 @@ public class DashboardTelemetry implements Telemetry {
     private boolean autoClear = true;
     private boolean clearOnAdd;
 
-    /** The defaults the SDK applies at the start of every op mode. */
+    /**
+     * Starts a new op mode as the SDK does, with a fresh model, log and defaults, and CLASSIC
+     * display. The transmission interval returns to the dashboard's default, not the SDK's 250 ms.
+     */
     synchronized void reset() {
         entries.clear();
         actions.clear();
@@ -58,18 +61,13 @@ public class DashboardTelemetry implements Telemetry {
                 DashboardCore.DEFAULT_TELEMETRY_TRANSMISSION_INTERVAL);
     }
 
-    /** Rounds floating point values as the SDK does. */
-    synchronized String render(Object value) {
-        if (value == null) {
-            // The SDK composes a null value as an empty string.
-            return "";
-        }
-
-        if (value instanceof Double || value instanceof Float) {
-            return decimalFormat.format(value);
-        }
-
-        return value.toString();
+    // As the SDK's Value: a Double or Float is formatted when added, anything else when composed.
+    synchronized ValueSource valueOf(Object value) {
+        String text =
+                value instanceof Double || value instanceof Float
+                        ? decimalFormat.format(value)
+                        : null;
+        return new ValueSource(null, null, value, text, null);
     }
 
     // The SDK clears on the first add after update(), not during it.
@@ -123,7 +121,7 @@ public class DashboardTelemetry implements Telemetry {
 
     @Override
     public Item addData(String caption, Object value) {
-        return addItem(caption, ValueSource.of(value), null);
+        return addItem(caption, valueOf(value), null);
     }
 
     @Override
@@ -189,7 +187,7 @@ public class DashboardTelemetry implements Telemetry {
 
     @Override
     public boolean update() {
-        TelemetryPacket packet = new TelemetryPacket();
+        FramePacket packet = new FramePacket();
 
         List<Runnable> pending;
         synchronized (this) {
@@ -202,12 +200,18 @@ public class DashboardTelemetry implements Telemetry {
         }
 
         // Outside the monitor for the same reason as actions: a producer may read a sensor.
-        List<Object> snapshot;
+        List<Object> snapshot = new ArrayList<>();
+        String itemSeparator;
+        String captionValueSeparator;
         synchronized (this) {
             packet.markTelemetryFrame();
             packet.setDisplayFormat(displayFormat);
-            packet.setCaptionValueSeparator(captionValueSeparator);
-            snapshot = new ArrayList<>(entries);
+            packet.setCaptionValueSeparator(this.captionValueSeparator);
+            itemSeparator = this.itemSeparator;
+            captionValueSeparator = this.captionValueSeparator;
+            for (Object entry : entries) {
+                snapshot.add(entry instanceof LineAdapter ? ((LineAdapter) entry).copy() : entry);
+            }
             clearOnAdd = autoClear;
         }
 
@@ -217,14 +221,14 @@ public class DashboardTelemetry implements Telemetry {
                     ItemAdapter item = (ItemAdapter) entry;
                     Resolved resolved = item.resolve();
 
-                    packet.put(item.getCaption(), resolved.text);
+                    packet.add(item.getCaption(), resolved.text);
 
                     // Unrounded, so the graph and CSV keep full precision.
                     if (resolved.raw != null) {
                         packet.putData(item.getCaption(), resolved.raw);
                     }
                 } else {
-                    ((LineAdapter) entry).saveTo(packet);
+                    ((LineAdapter) entry).saveTo(packet, itemSeparator, captionValueSeparator);
                 }
             }
 
@@ -339,29 +343,27 @@ public class DashboardTelemetry implements Telemetry {
         private final String format;
         private final Object[] args;
         private final Object value;
+        private final String text;
         private final Func<?> producer;
 
-        ValueSource(String format, Object[] args, Object value, Func<?> producer) {
+        ValueSource(String format, Object[] args, Object value, String text, Func<?> producer) {
             this.format = format;
             this.args = args;
             this.value = value;
+            this.text = text;
             this.producer = producer;
         }
 
-        static ValueSource of(Object value) {
-            return new ValueSource(null, null, value, null);
-        }
-
         static ValueSource of(String format, Object... args) {
-            return new ValueSource(format, args, null, null);
+            return new ValueSource(format, args, null, null, null);
         }
 
         static ValueSource of(Func<?> producer) {
-            return new ValueSource(null, null, null, producer);
+            return new ValueSource(null, null, null, null, producer);
         }
 
         static ValueSource of(String format, Func<?> producer) {
-            return new ValueSource(format, null, null, producer);
+            return new ValueSource(format, null, null, null, producer);
         }
 
         boolean isProducer() {
@@ -369,7 +371,7 @@ public class DashboardTelemetry implements Telemetry {
         }
 
         /** Exactly once per update: a producer may read a sensor. */
-        Resolved resolve(DashboardTelemetry telemetry) {
+        Resolved resolve() {
             if (format != null) {
                 if (args != null) {
                     return new Resolved(null, String.format(format, args));
@@ -388,7 +390,23 @@ public class DashboardTelemetry implements Telemetry {
                 return new Resolved(raw, raw == null ? "" : raw.toString());
             }
 
-            return new Resolved(value, telemetry.render(value));
+            if (text != null) {
+                return new Resolved(value, text);
+            }
+
+            // The SDK composes a null value as an empty string.
+            return new Resolved(value, value == null ? "" : value.toString());
+        }
+    }
+
+    /** Reaches the packet's protected members, which hand-built packets do not get. */
+    private static final class FramePacket extends TelemetryPacket {
+        void add(String caption, String text) {
+            append(caption, text);
+        }
+
+        void numberLog(long first, long last) {
+            setLogRange(first, last);
         }
     }
 
@@ -421,7 +439,7 @@ public class DashboardTelemetry implements Telemetry {
         }
 
         Resolved resolve() {
-            return value.resolve(telemetry);
+            return value.resolve();
         }
 
         private Telemetry.Item chain(String caption, ValueSource value) {
@@ -449,7 +467,7 @@ public class DashboardTelemetry implements Telemetry {
 
         @Override
         public Telemetry.Item setValue(Object value) {
-            this.value = ValueSource.of(value);
+            this.value = telemetry.valueOf(value);
             return this;
         }
 
@@ -485,7 +503,7 @@ public class DashboardTelemetry implements Telemetry {
 
         @Override
         public Telemetry.Item addData(String caption, Object value) {
-            return chain(caption, ValueSource.of(value));
+            return chain(caption, telemetry.valueOf(value));
         }
 
         @Override
@@ -533,29 +551,35 @@ public class DashboardTelemetry implements Telemetry {
             }
         }
 
-        void saveTo(TelemetryPacket packet) {
+        // Its items as they are now, so update() can compose the line outside the monitor.
+        LineAdapter copy() {
             synchronized (telemetry) {
-                StringBuilder composed = new StringBuilder(lineCaption);
-
-                for (int i = 0; i < items.size(); i++) {
-                    ItemAdapter item = items.get(i);
-                    Resolved resolved = item.resolve();
-
-                    if (i > 0) {
-                        composed.append(telemetry.getItemSeparator());
-                    }
-                    composed.append(item.getCaption())
-                            .append(telemetry.getCaptionValueSeparator())
-                            .append(resolved.text);
-
-                    // Keyed for the graph, but already displayed in this line.
-                    if (resolved.raw != null) {
-                        packet.putData(item.getCaption(), resolved.raw);
-                    }
-                }
-
-                packet.addLine(composed.toString());
+                LineAdapter copy = new LineAdapter(telemetry, lineCaption);
+                copy.items.addAll(items);
+                return copy;
             }
+        }
+
+        void saveTo(TelemetryPacket packet, String itemSeparator, String captionValueSeparator) {
+            StringBuilder composed = new StringBuilder(lineCaption);
+
+            for (int i = 0; i < items.size(); i++) {
+                ItemAdapter item = items.get(i);
+                Resolved resolved = item.resolve();
+
+                if (i > 0) {
+                    composed.append(itemSeparator);
+                }
+                composed.append(item.getCaption())
+                        .append(captionValueSeparator)
+                        .append(resolved.text);
+
+                // Keyed for the graph, but already displayed in this line.
+                packet.putData(
+                        item.getCaption(), resolved.raw != null ? resolved.raw : resolved.text);
+            }
+
+            packet.addLine(composed.toString());
         }
 
         Telemetry.Item addAfter(ItemAdapter after, String caption, ValueSource value) {
@@ -581,7 +605,7 @@ public class DashboardTelemetry implements Telemetry {
 
         @Override
         public Telemetry.Item addData(String caption, Object value) {
-            return addAfter(null, caption, ValueSource.of(value));
+            return addAfter(null, caption, telemetry.valueOf(value));
         }
 
         @Override
@@ -603,6 +627,8 @@ public class DashboardTelemetry implements Telemetry {
         private static final int DEFAULT_CAPACITY = 9;
 
         private final List<String> entries = new ArrayList<>();
+        // Survives reset(), so a client that misses an op mode change never sees a number reused.
+        private long added;
         private int capacity = DEFAULT_CAPACITY;
         private DisplayOrder displayOrder = DisplayOrder.OLDEST_FIRST;
 
@@ -612,15 +638,24 @@ public class DashboardTelemetry implements Telemetry {
             displayOrder = DisplayOrder.OLDEST_FIRST;
         }
 
-        synchronized void saveTo(TelemetryPacket packet) {
+        synchronized void saveTo(FramePacket packet) {
+            if (entries.isEmpty()) {
+                return;
+            }
+
+            // Pruning drops the oldest and clear() drops all, so the newest added are what remain.
+            long oldest = added - entries.size() + 1;
+
             if (displayOrder == DisplayOrder.OLDEST_FIRST) {
                 for (String entry : entries) {
                     packet.addLogEntry(entry);
                 }
+                packet.numberLog(oldest, added);
             } else {
                 for (int i = entries.size() - 1; i >= 0; i--) {
                     packet.addLogEntry(entries.get(i));
                 }
+                packet.numberLog(added, oldest);
             }
         }
 
@@ -648,6 +683,7 @@ public class DashboardTelemetry implements Telemetry {
         @Override
         public synchronized void add(String entry) {
             entries.add(entry);
+            added++;
             prune();
         }
 

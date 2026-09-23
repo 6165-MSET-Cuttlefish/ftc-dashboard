@@ -89,6 +89,8 @@ export type TelemetryItem = {
   displayFormat?: TelemetryDisplayFormat;
   captionValueSeparator?: string;
   telemetryFrame?: boolean;
+  // Numbers a log resent whole in every packet, consecutively from the first entry to the last.
+  logRange?: [number, number] | null;
 };
 
 export type ReceiveTelemetryAction = {

@@ -66,11 +66,20 @@ public class MultipleTelemetry implements Telemetry {
         return new MultipleItem(items);
     }
 
+    // A delegate knows only its own item, which a MultipleItem holds at that delegate's index.
     @Override
     public boolean removeItem(Item item) {
         boolean retVal = true;
-        for (Telemetry telemetry : telemetryList) {
-            boolean temp = telemetry.removeItem(item);
+        for (int i = 0; i < telemetryList.size(); i++) {
+            Item own = item;
+            if (item instanceof MultipleItem) {
+                List<Item> items = ((MultipleItem) item).items;
+                if (i >= items.size()) {
+                    break;
+                }
+                own = items.get(i);
+            }
+            boolean temp = telemetryList.get(i).removeItem(own);
             retVal = retVal && temp;
         }
         return retVal;
@@ -146,8 +155,16 @@ public class MultipleTelemetry implements Telemetry {
     @Override
     public boolean removeLine(Line line) {
         boolean retVal = true;
-        for (Telemetry telemetry : telemetryList) {
-            boolean temp = telemetry.removeLine(line);
+        for (int i = 0; i < telemetryList.size(); i++) {
+            Line own = line;
+            if (line instanceof MultipleLine) {
+                List<Line> lines = ((MultipleLine) line).lines;
+                if (i >= lines.size()) {
+                    break;
+                }
+                own = lines.get(i);
+            }
+            boolean temp = telemetryList.get(i).removeLine(own);
             retVal = retVal && temp;
         }
         return retVal;

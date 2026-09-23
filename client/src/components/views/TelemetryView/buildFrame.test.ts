@@ -71,6 +71,33 @@ describe('ordering', () => {
   });
 });
 
+describe('repeated captions', () => {
+  // The SDK's addData() always appends, so a loop over motors or detections repeats a caption.
+  it('shows each occurrence within a packet on its own line', () => {
+    expect(
+      rendered([
+        {
+          items: [
+            item('ID', '3'),
+            item('Range', '10'),
+            item('ID', '7'),
+            item('Range', '42'),
+          ],
+        },
+      ]),
+    ).toEqual(['ID: 3', 'Range: 10', 'ID: 7', 'Range: 42']);
+  });
+
+  it('collapses a repeated frame onto its newest values', () => {
+    expect(
+      rendered([
+        { items: [item('Motor', 'fl 0.5'), item('Motor', 'fr 0.2')] },
+        { items: [item('Motor', 'fl 0.6'), item('Motor', 'fr 0.3')] },
+      ]),
+    ).toEqual(['Motor: fl 0.6', 'Motor: fr 0.3']);
+  });
+});
+
 describe('batching', () => {
   // A robot looping faster than the 100ms transmission interval fills a batch with whole frames.
   it('shows a repeated frame once, not once per packet', () => {

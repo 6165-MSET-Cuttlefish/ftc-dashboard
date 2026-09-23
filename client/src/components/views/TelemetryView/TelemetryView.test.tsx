@@ -42,14 +42,15 @@ const lines = () =>
     (el) => el.innerHTML,
   );
 
-// The menu animates, so each step flushes the effects the transition schedules afterwards.
+// The menu animates, so each step flushes the effects the transition schedules afterwards. It is
+// portalled into the body, so its options are looked up in the whole document.
 const openMenuAndChoose = async (label: string) => {
   await act(async () => {
     container.querySelector<HTMLButtonElement>('button.icon-btn')?.click();
   });
 
   const option = Array.from(
-    container.querySelectorAll<HTMLButtonElement>('button'),
+    document.querySelectorAll<HTMLButtonElement>('button'),
   ).find((b) => b.textContent?.trim().endsWith(label));
 
   await act(async () => {
@@ -133,6 +134,23 @@ describe('display format', () => {
     expect(container.querySelector('.flex-1 > div > div')?.className).toContain(
       'font-mono',
     );
+  });
+});
+
+describe('length cap', () => {
+  it('bounds a runaway value in every format alike', () => {
+    const value = 'x'.repeat(20000);
+    render([
+      packet({ displayFormat: 'CLASSIC', items: [{ caption: 'c', value }] }),
+      packet({ displayFormat: 'HTML', items: [{ caption: 'h', value }] }),
+    ]);
+
+    const [classic, html] = Array.from(
+      container.querySelectorAll('.flex-1 > div > div'),
+      (el) => el.textContent ?? '',
+    );
+    expect(classic).toBe(`c: ${'x'.repeat(16384)}\u2026`);
+    expect(html).toBe(`h: ${'x'.repeat(16384)}\u2026`);
   });
 });
 

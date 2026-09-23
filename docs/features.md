@@ -96,8 +96,8 @@ dashboardTelemetry.update();
 
 It follows the SDK's semantics: the `Item` returned by `addData()` stays addressable, `Func` values
 are re-evaluated on every update, retained items survive a `clear()`, `setAutoClear(false)`
-accumulates telemetry across updates, and `Double` and `Float` values are rounded as the Driver
-Station rounds them (`setNumDecimalPlaces()` adjusts this). Only `speak()` does nothing.
+accumulates telemetry across updates, and `Double` and `Float` values are rounded when added, as
+the Driver Station rounds them (`setNumDecimalPlaces()` adjusts this). Only `speak()` does nothing.
 
 Each call to `update()` composes a packet from the telemetry currently set and sends it. Be careful: this indirection can mask the presence of multiple `sendTelemetryPacket()` calls in a single loop iteration.
 

@@ -1,4 +1,5 @@
-import { useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useSelector } from 'react-redux';
 import { Transition } from '@headlessui/react';
 import clsx from 'clsx';
@@ -9,7 +10,9 @@ import BaseView, {
   BaseViewProps,
   BaseViewHeadingProps,
 } from '@/components/views/BaseView';
-import sanitizeTelemetryHtml from '@/components/views/TelemetryView/sanitizeTelemetryHtml';
+import sanitizeTelemetryHtml, {
+  truncateTelemetry,
+} from '@/components/views/TelemetryView/sanitizeTelemetryHtml';
 import { RootState } from '@/store/reducers';
 import { TelemetryDisplayFormat } from '@/store/types/telemetry';
 import buildFrame, {
@@ -22,11 +25,10 @@ import { ReactComponent as MoreVertSVG } from '@/assets/icons/more_vert.svg';
 
 type TelemetryViewProps = BaseViewProps & BaseViewHeadingProps;
 
-// Matches the sanitizer's own limit.
-const MAX_VALUE_LENGTH = 16384;
-
 // `null` follows each packet's own format; the others override every line.
 type FormatOverride = TelemetryDisplayFormat | null;
+
+const MENU_GAP = 8;
 
 const FORMAT_OPTIONS: { label: string; value: FormatOverride }[] = [
   { label: 'Auto', value: null },
@@ -53,8 +55,39 @@ const TelemetryView = ({
   const [formatOverride, setFormatOverride] = useState<FormatOverride>(null);
   const [isMenuVisible, setIsMenuVisible] = useState(false);
 
-  const menuRef = useRef(null);
-  const menuButtonRef = useRef(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const [menuPosition, setMenuPosition] = useState({ top: 0, right: 0 });
+
+  // Portalled with fixed coordinates, so a small tile can neither clip the menu nor leave the edit
+  // button over it. It opens above the button when the viewport has no room below.
+  const placeMenu = useCallback(() => {
+    const button = menuButtonRef.current?.getBoundingClientRect();
+    if (!button) return;
+
+    const height = menuRef.current?.offsetHeight ?? 0;
+    const { clientWidth, clientHeight } = document.documentElement;
+    const below = button.bottom + MENU_GAP;
+
+    setMenuPosition({
+      top:
+        below + height <= clientHeight
+          ? below
+          : Math.max(0, button.top - MENU_GAP - height),
+      right: clientWidth - button.right,
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!isMenuVisible) return undefined;
+
+    window.addEventListener('resize', placeMenu);
+    window.addEventListener('scroll', placeMenu, true);
+    return () => {
+      window.removeEventListener('resize', placeMenu);
+      window.removeEventListener('scroll', placeMenu, true);
+    };
+  }, [isMenuVisible, placeMenu]);
 
   useOnClickOutside(
     menuRef,
@@ -69,13 +102,10 @@ const TelemetryView = ({
     const { caption, value, separator } = line;
     const displayFormat = formatOverride ?? line.displayFormat;
 
-    // The same bound the sanitizer applies, so a runaway value cannot bloat the DOM.
     const renderText = (text: string) =>
       displayFormat === 'HTML'
         ? sanitizeTelemetryHtml(text)
-        : text.length > MAX_VALUE_LENGTH
-        ? `${text.slice(0, MAX_VALUE_LENGTH)}\u2026`
-        : text;
+        : truncateTelemetry(text);
 
     return (
       <div
@@ -114,22 +144,26 @@ const TelemetryView = ({
           {/* An override is easy to set and forget, so say so rather than leaving someone to
               wonder why their telemetry renders differently here than anywhere else. */}
           {formatOverride !== null && (
-            <span className="text-neutral-gray-400 ml-2 align-middle text-sm font-normal">
+            <span className="ml-2 align-middle text-sm font-normal text-gray-500 dark:text-gray-400">
               {formatOverride.toLowerCase()}
             </span>
           )}
         </BaseViewHeading>
         <div className="mr-3 flex items-center space-x-1">
-          <div className="relative inline-block" style={{ zIndex: 99 }}>
-            <button
-              ref={menuButtonRef}
-              className="icon-btn h-8 w-8"
-              onClick={() => setIsMenuVisible(!isMenuVisible)}
-            >
-              <MoreVertSVG className="h-6 w-6" />
-            </button>
+          <button
+            ref={menuButtonRef}
+            className="icon-btn h-8 w-8"
+            onClick={() => setIsMenuVisible(!isMenuVisible)}
+          >
+            <MoreVertSVG className="h-6 w-6" />
+          </button>
+          {createPortal(
             <Transition
+              ref={menuRef}
               show={isMenuVisible}
+              beforeEnter={placeMenu}
+              className="fixed z-50 origin-top-right rounded-md border border-gray-200 bg-white py-2 text-black shadow-lg outline-none dark:bg-slate-700 dark:text-white"
+              style={menuPosition}
               enter="transition ease-out duration-100"
               enterFrom="transform opacity-0 scale-95"
               enterTo="transform opacity-100 scale-100"
@@ -137,34 +171,30 @@ const TelemetryView = ({
               leaveFrom="transform opacity-100 scale-100"
               leaveTo="transform opacity-0 scale-95"
             >
-              <div
-                ref={menuRef}
-                className="absolute right-0 mt-2 origin-top-right rounded-md border border-gray-200 bg-white py-2 shadow-lg outline-none dark:bg-slate-700"
-              >
-                <p className="mb-1 whitespace-nowrap border-b border-gray-100 pb-1 pl-3 pr-3 text-sm leading-5">
-                  Display Format
-                </p>
-                {FORMAT_OPTIONS.map(({ label, value }) => (
-                  <button
-                    key={label}
-                    className={clsx(
-                      'block w-full whitespace-nowrap px-3 py-1 text-left text-sm hover:bg-gray-100 dark:hover:bg-slate-600',
-                      formatOverride === value && 'font-medium',
-                    )}
-                    onClick={() => {
-                      setFormatOverride(value);
-                      setIsMenuVisible(false);
-                    }}
-                  >
-                    <span className="inline-block w-4">
-                      {formatOverride === value ? '✓' : ''}
-                    </span>
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </Transition>
-          </div>
+              <p className="mb-1 whitespace-nowrap border-b border-gray-100 pb-1 pl-3 pr-3 text-sm leading-5">
+                Display Format
+              </p>
+              {FORMAT_OPTIONS.map(({ label, value }) => (
+                <button
+                  key={label}
+                  className={clsx(
+                    'block w-full whitespace-nowrap px-3 py-1 text-left text-sm hover:bg-gray-100 dark:hover:bg-slate-600',
+                    formatOverride === value && 'font-medium',
+                  )}
+                  onClick={() => {
+                    setFormatOverride(value);
+                    setIsMenuVisible(false);
+                  }}
+                >
+                  <span className="inline-block w-4">
+                    {formatOverride === value ? '✓' : ''}
+                  </span>
+                  {label}
+                </button>
+              ))}
+            </Transition>,
+            document.body,
+          )}
         </div>
       </div>
       <BaseViewBody>

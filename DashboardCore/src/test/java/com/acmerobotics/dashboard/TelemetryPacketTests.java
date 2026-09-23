@@ -1,6 +1,7 @@
 package com.acmerobotics.dashboard;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 import com.acmerobotics.dashboard.telemetry.TelemetryPacket;
 import com.google.gson.JsonObject;
@@ -66,6 +67,36 @@ public class TelemetryPacketTests {
         assertEquals(
                 "[{\"caption\":\"a\",\"value\":\"3\"},{\"caption\":\"b\",\"value\":\"2\"}]",
                 items(packet));
+    }
+
+    // The Telemetry adapter reaches the protected members through a subclass like this one.
+    private static final class AppendingPacket extends TelemetryPacket {
+        AppendingPacket() {
+            super(false);
+        }
+
+        void add(String key, Object value) {
+            append(key, value);
+        }
+
+        void numberLog(long first, long last) {
+            setLogRange(first, last);
+        }
+    }
+
+    @Test
+    public void appendKeepsARepeatedKeyAndTheLatestKeyedValue() {
+        AppendingPacket packet = new AppendingPacket();
+        packet.add("x", 1);
+        packet.add("y", 2);
+        packet.add("x", 3);
+
+        assertEquals(
+                "[{\"caption\":\"x\",\"value\":\"1\"},"
+                        + "{\"caption\":\"y\",\"value\":\"2\"},"
+                        + "{\"caption\":\"x\",\"value\":\"3\"}]",
+                items(packet));
+        assertEquals("{\"x\":\"3\",\"y\":\"2\"}", serialize(packet).get("data").toString());
     }
 
     @Test
@@ -155,6 +186,26 @@ public class TelemetryPacketTests {
 
         assertEquals("[{\"caption\":null,\"value\":\"kept\"}]", items(packet));
         assertEquals("[]", serialize(packet).get("log").toString());
+    }
+
+    @Test
+    public void handBuiltLogIsUnnumbered() {
+        TelemetryPacket packet = new TelemetryPacket(false);
+        packet.addLogEntry("tick");
+
+        assertNull(packet.getLogRange());
+        assertEquals("null", serialize(packet).get("logRange").toString());
+    }
+
+    @Test
+    public void numberedLogSendsTheNumbersOfItsFirstAndLastEntries() {
+        AppendingPacket packet = new AppendingPacket();
+        packet.addLogEntry("c");
+        packet.addLogEntry("b");
+        packet.numberLog(3, 2);
+
+        assertEquals("[\"c\",\"b\"]", serialize(packet).get("log").toString());
+        assertEquals("[3,2]", serialize(packet).get("logRange").toString());
     }
 
     @Test

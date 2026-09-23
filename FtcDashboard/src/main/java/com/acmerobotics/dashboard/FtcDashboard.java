@@ -1430,9 +1430,9 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications, DashboardT
 
     /**
      * Queues a telemetry packet to be sent to all clients. Packets are sent in batches of
-     * approximate period {@link #getTelemetryTransmissionInterval()}. Clients display the most
-     * recent value received for each key, and the data is cleared upon op mode init or a call to
-     * {@link #clearTelemetry()}.
+     * approximate period {@link #getTelemetryTransmissionInterval()}. The Telemetry view rebuilds
+     * its display from each batch, keeps it through a batch that only draws on the field, and is
+     * cleared at op mode init or by {@link #clearTelemetry()}.
      *
      * @param telemetryPacket packet to send
      */
@@ -1446,9 +1446,9 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications, DashboardT
     }
 
     /**
-     * Returns a {@link Telemetry} object that delegates to the telemetry methods of this class.
-     * Beware that the implementation of the interface is incomplete, and users should test each
-     * method they intend to use.
+     * Returns a {@link Telemetry} that sends to the dashboard with the SDK's semantics. It displays
+     * in {@link Telemetry.DisplayFormat#CLASSIC} unless told otherwise, is reset at every op mode
+     * init, and does nothing on {@code speak()}.
      */
     public Telemetry getTelemetry() {
         return telemetry;

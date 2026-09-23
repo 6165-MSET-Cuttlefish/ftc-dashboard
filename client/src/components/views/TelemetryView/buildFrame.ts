@@ -45,6 +45,17 @@ function entriesOf(packet: TelemetryItem): DisplayedLine[] {
   }));
 }
 
+// Matched by caption and occurrence, so a caption repeated in one packet stays a line of its own.
+function slotsOf(entries: DisplayedLine[]): (string | null)[] {
+  const occurrences = new Map<string, number>();
+  return entries.map(({ caption }) => {
+    if (caption == null) return null;
+    const occurrence = occurrences.get(caption) ?? 0;
+    occurrences.set(caption, occurrence + 1);
+    return JSON.stringify([caption, occurrence]);
+  });
+}
+
 /**
  * Packets are grouped by shape (their captions) so repeats of one loop collapse onto the newest
  * while different sources sit side by side. Grouping on shape is what lets bare lines survive.
@@ -90,28 +101,29 @@ export default function buildFrame(packets: Telemetry): Frame | null {
 
     shapes.set(key, entries);
 
-    for (const entry of entries) {
-      if (entry.caption != null) newest.set(entry.caption, entry);
-    }
+    slotsOf(entries).forEach((slot, i) => {
+      if (slot !== null) newest.set(slot, entries[i]);
+    });
   }
 
   const entries: DisplayedLine[] = [];
   const seen = new Set<string>();
 
   for (const shape of shapes.values()) {
-    // A conditional item splits one frame into two shapes; only the first keeps its bare lines.
-    const overlaps = shape.some(
-      (e) => e.caption != null && seen.has(e.caption),
-    );
+    const slots = slotsOf(shape);
 
-    for (const entry of shape) {
-      if (entry.caption == null) {
+    // A conditional item splits one frame into two shapes; only the first keeps its bare lines.
+    const overlaps = slots.some((slot) => slot !== null && seen.has(slot));
+
+    shape.forEach((entry, i) => {
+      const slot = slots[i];
+      if (slot === null) {
         if (!overlaps) entries.push(entry);
-      } else if (!seen.has(entry.caption)) {
-        seen.add(entry.caption);
-        entries.push(newest.get(entry.caption) ?? entry);
+      } else if (!seen.has(slot)) {
+        seen.add(slot);
+        entries.push(newest.get(slot) ?? entry);
       }
-    }
+    });
   }
 
   // The newest packet that carries a log wins, so an unrelated source cannot blank it.

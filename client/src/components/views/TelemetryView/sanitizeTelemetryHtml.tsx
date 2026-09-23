@@ -221,13 +221,18 @@ function elementStyle(tag: string, element: Element): Style {
   return style;
 }
 
-export function sanitizeTelemetryHtml(input: string): ReactNode {
-  const source =
-    input.length > MAX_INPUT_LENGTH
-      ? `${input.slice(0, MAX_INPUT_LENGTH)}…`
-      : input;
+/** Bounds a runaway value, whatever its format, so it cannot bloat the DOM. */
+export function truncateTelemetry(text: string): string {
+  return text.length > MAX_INPUT_LENGTH
+    ? `${text.slice(0, MAX_INPUT_LENGTH)}…`
+    : text;
+}
 
-  const doc = new DOMParser().parseFromString(source, 'text/html');
+export function sanitizeTelemetryHtml(input: string): ReactNode {
+  const doc = new DOMParser().parseFromString(
+    truncateTelemetry(input),
+    'text/html',
+  );
 
   let budget = MAX_NODES;
   let key = 0;
