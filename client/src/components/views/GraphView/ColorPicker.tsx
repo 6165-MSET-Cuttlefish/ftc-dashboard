@@ -46,17 +46,21 @@ export const ColorPalette = ({
 }: ColorPaletteProps) => {
   const id = useId();
 
-  const [hexInput, setHexInput] = useState(color);
-  const hexValid = normalizeHexColor(hexInput) !== null;
+  // null shows `color` itself
+  const [hexInput, setHexInput] = useState<string | null>(null);
+  const hexText = hexInput ?? color;
+  const hexValid = normalizeHexColor(hexText) !== null;
 
   // Leave the field alone while it already spells the current color, or
   // normalizing '#abc' under the cursor makes shorthand impossible to type.
   useEffect(
     () =>
       setHexInput((current) =>
-        normalizeHexColor(current) !== null && sameColor(current, color)
+        current !== null &&
+        normalizeHexColor(current) !== null &&
+        sameColor(current, color)
           ? current
-          : color,
+          : null,
       ),
     [color],
   );
@@ -85,6 +89,18 @@ export const ColorPalette = ({
 
     const normalized = normalizeHexColor(raw);
     if (normalized !== null) onChange(normalized);
+  };
+
+  // Drop typed text here rather than in the effect above, which runs a frame
+  // late and not at all when the chosen color is the current one.
+  const choose = (swatch: string) => {
+    setHexInput(null);
+    onChange(swatch);
+  };
+
+  const reset = () => {
+    setHexInput(null);
+    onReset();
   };
 
   return (
@@ -120,7 +136,7 @@ export const ColorPalette = ({
               title={swatch}
               aria-label={swatch}
               aria-pressed={selected}
-              onClick={() => onChange(swatch)}
+              onClick={() => choose(swatch)}
             />
           );
         })}
@@ -149,7 +165,7 @@ export const ColorPalette = ({
             !hexValid &&
               'border-red-500 focus:border-red-500 focus:ring-red-500',
           )}
-          value={hexInput}
+          value={hexText}
           spellCheck={false}
           placeholder="#rrggbb"
           onChange={(evt) => handleHexChange(evt.target.value)}
@@ -160,11 +176,12 @@ export const ColorPalette = ({
           // override the resting border back to transparent
           className={clsx(
             'shrink-0 rounded border border-gray-300 px-2 py-1 transition-colors',
-            'hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-opacity-30',
+            'hover:bg-gray-200 focus:outline-none',
+            'focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-opacity-30',
             'dark:border-slate-500 dark:hover:bg-slate-700',
           )}
           title="Restore the automatically assigned color"
-          onClick={onReset}
+          onClick={reset}
         >
           Reset
         </button>

@@ -237,7 +237,8 @@ export default class Graph {
   }
 
   reset() {
-    this.data = {};
+    // no prototype, so a series named '__proto__' is stored like any other
+    this.data = Object.create(null);
 
     this.beginGraphNowMs = Number.NaN; // in telemetry time
     this.beginRenderTimeMs = Number.NaN; // in browser time
@@ -265,8 +266,8 @@ export default class Graph {
   colorFor(name: string) {
     const o = this.options;
 
-    const override = o.seriesColors[name];
-    if (override) return override;
+    if (Object.prototype.hasOwnProperty.call(o.seriesColors, name))
+      return o.seriesColors[name];
 
     const orderIndex = o.seriesOrder.indexOf(name);
     const index =
@@ -565,13 +566,5 @@ export default class Graph {
 
   setOptions(options: Options) {
     Object.assign(this.options, options);
-
-    // Dropped from the layer order means no longer graphed, so forget it.
-    const { seriesOrder } = this.options;
-    if (seriesOrder.length === 0) return;
-
-    for (const name of Object.keys(this.data)) {
-      if (!seriesOrder.includes(name)) delete this.data[name];
-    }
   }
 }

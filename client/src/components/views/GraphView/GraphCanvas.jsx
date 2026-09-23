@@ -59,6 +59,10 @@ class GraphCanvas extends React.Component {
   }
 
   renderGraph() {
+    // Option changes call this while a frame is already queued; without the
+    // cancel each one would leave another loop running.
+    if (this.requestId) cancelAnimationFrame(this.requestId);
+
     if (this.props.paused) {
       // Option changes made while paused are visible without resuming.
       this.graph.render(this.props.pausedTime);

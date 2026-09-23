@@ -37,8 +37,8 @@ type GraphViewState = {
   // selection doubles as the layer order: the first key is drawn in front
   selectedKeys: string[];
   // colors are remembered per key, including for keys that are unchecked and
-  // later re-checked
-  keyColors: { [key: string]: string };
+  // later re-checked; a Map because keys like 'constructor' come from the robot
+  keyColors: ReadonlyMap<string, string>;
   showSeriesSettings: boolean;
   windowMs: ValResult<number>;
 };
@@ -67,7 +67,7 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
       pausedTime: 0,
       availableKeys: [],
       selectedKeys: [],
-      keyColors: {},
+      keyColors: new Map(),
       showSeriesSettings: false,
       windowMs: {
         value: DEFAULT_OPTIONS.windowMs,
@@ -96,7 +96,9 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
   // activate that button and stop graphing instead of toggling pause.
   keepFocusOnView(evt: React.MouseEvent) {
     evt.preventDefault();
-    this.containerRef.current?.focus();
+    // Scrolling the tile into view would move the button from under the
+    // pointer and lose the click.
+    this.containerRef.current?.focus({ preventScroll: true });
   }
 
   componentDidMount() {
@@ -152,7 +154,7 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
 
   handleSelectionChange(selectedKeys: string[]) {
     this.setState((state) => {
-      const keyColors = { ...state.keyColors };
+      const keyColors = new Map(state.keyColors);
 
       // Only arriving keys need a color picked; only theirs can collide.
       const staying = selectedKeys.filter((key) =>
@@ -163,19 +165,19 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
       );
 
       const used = staying
-        .map((key) => keyColors[key])
+        .map((key) => keyColors.get(key))
         .filter((color): color is string => color !== undefined);
 
       for (const key of arriving) {
         // A returning key keeps its old color unless another line took it.
-        const remembered = keyColors[key];
+        const remembered = keyColors.get(key);
         const color =
           remembered !== undefined &&
           !used.some((taken) => sameColor(taken, remembered))
             ? remembered
             : pickDefaultColor(used);
 
-        keyColors[key] = color;
+        keyColors.set(key, color);
         used.push(color);
       }
 
@@ -183,13 +185,21 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
     });
   }
 
-  handleReorder(selectedKeys: string[]) {
-    this.setState({ selectedKeys });
+  // Only the shown keys move; absent ones keep their slots in the selection.
+  handleReorder(shownKeys: string[]) {
+    this.setState((state) => {
+      let next = 0;
+      return {
+        selectedKeys: state.selectedKeys.map((key) =>
+          shownKeys.includes(key) ? shownKeys[next++] : key,
+        ),
+      };
+    });
   }
 
   handleColorChange(key: string, color: string) {
     this.setState((state) => ({
-      keyColors: { ...state.keyColors, [key]: color },
+      keyColors: new Map(state.keyColors).set(key, color),
     }));
   }
 
@@ -197,11 +207,11 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
     this.setState((state) => {
       const used = state.selectedKeys
         .filter((k) => k !== key)
-        .map((k) => state.keyColors[k])
+        .map((k) => state.keyColors.get(k))
         .filter((color): color is string => color !== undefined);
 
       return {
-        keyColors: { ...state.keyColors, [key]: pickDefaultColor(used) },
+        keyColors: new Map(state.keyColors).set(key, pickDefaultColor(used)),
       };
     });
   }
@@ -280,17 +290,30 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
     });
   }
 
-  renderSeriesList(seriesColors: { [key: string]: string }) {
+  // Keys the current op mode is not sending stay selected, so they come back
+  // checked when it sends them again, but have no line to edit until then.
+  // Every op mode init and telemetry.clear() empties availableKeys, so until
+  // the next packet the selection stands in for it.
+  shownKeys() {
+    const { selectedKeys, availableKeys } = this.state;
+    if (availableKeys.length === 0) return selectedKeys;
+    return selectedKeys.filter((key) => availableKeys.includes(key));
+  }
+
+  renderSeriesList(
+    shownKeys: string[],
+    seriesColors: { [key: string]: string },
+  ) {
     return (
       <>
         <GraphSeriesList
-          seriesKeys={this.state.selectedKeys}
+          seriesKeys={shownKeys}
           colors={seriesColors}
           onReorder={this.handleReorder}
           onColorChange={this.handleColorChange}
           onColorReset={this.handleColorReset}
         />
-        {this.state.selectedKeys.length > 1 && (
+        {shownKeys.length > 1 && (
           <p className="mt-1 text-sm opacity-60">
             The first line is drawn in front of the others.
           </p>
@@ -302,7 +325,9 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
   // colors of the graphed keys only; the rest are remembered but unused
   seriesColors() {
     return Object.fromEntries(
-      this.state.selectedKeys.map((key) => [key, this.state.keyColors[key]]),
+      [...this.state.keyColors].filter(([key]) =>
+        this.state.selectedKeys.includes(key),
+      ),
     );
   }
 
@@ -328,6 +353,7 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
         }),
     ]);
 
+    const shownKeys = this.shownKeys();
     const seriesColors = this.seriesColors();
 
     return (
@@ -342,48 +368,46 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
             Graph
           </BaseViewHeading>
           <BaseViewIcons>
-            {this.state.graphing && this.state.selectedKeys.length !== 0 && (
-              <>
-                <BaseViewIconButton
-                  title={
-                    this.state.showSeriesSettings
-                      ? 'Hide Line Settings'
-                      : 'Show Line Settings'
-                  }
-                  className="icon-btn h-8 w-8"
-                  onMouseDown={this.keepFocusOnView}
-                  onClick={() =>
-                    this.setState((state) => ({
-                      showSeriesSettings: !state.showSeriesSettings,
-                    }))
-                  }
-                >
-                  <PaletteIcon className="h-5 w-5" viewBox="0 0 50 50" />
-                </BaseViewIconButton>
+            {this.state.graphing && shownKeys.length !== 0 && (
+              <BaseViewIconButton
+                title={
+                  this.state.showSeriesSettings
+                    ? 'Hide Line Settings'
+                    : 'Show Line Settings'
+                }
+                className="icon-btn h-8 w-8"
+                onMouseDown={this.keepFocusOnView}
+                onClick={() =>
+                  this.setState((state) => ({
+                    showSeriesSettings: !state.showSeriesSettings,
+                  }))
+                }
+              >
+                <PaletteIcon className="h-5 w-5" viewBox="0 0 50 50" />
+              </BaseViewIconButton>
+            )}
 
-                <BaseViewIconButton
-                  title={
-                    this.state.userPaused
-                      ? 'Resume Graphing'
-                      : this.noOpmodeRunning(this.props)
-                      ? 'Graphing will restart when an OpMode starts'
-                      : 'Pause Graphing'
-                  }
-                  className="icon-btn h-8 w-8"
-                  onMouseDown={this.keepFocusOnView}
-                  // on the button rather than the icon so that Space and Enter
-                  // activate it like any other button
-                  onClick={
-                    this.state.userPaused ? this.userPlay : this.userPause
-                  }
-                >
-                  {this.state.userPaused ? (
-                    <PlayIcon className="h-6 w-6" />
-                  ) : (
-                    <PauseIcon className="h-6 w-6" />
-                  )}
-                </BaseViewIconButton>
-              </>
+            {this.state.graphing && this.state.selectedKeys.length !== 0 && (
+              <BaseViewIconButton
+                title={
+                  this.state.userPaused
+                    ? 'Resume Graphing'
+                    : this.noOpmodeRunning(this.props)
+                    ? 'Graphing will restart when an OpMode starts'
+                    : 'Pause Graphing'
+                }
+                className="icon-btn h-8 w-8"
+                onMouseDown={this.keepFocusOnView}
+                // on the button rather than the icon so that Space and Enter
+                // activate it like any other button
+                onClick={this.state.userPaused ? this.userPlay : this.userPause}
+              >
+                {this.state.userPaused ? (
+                  <PlayIcon className="h-6 w-6" />
+                ) : (
+                  <PauseIcon className="h-6 w-6" />
+                )}
+              </BaseViewIconButton>
             )}
 
             <BaseViewIconButton
@@ -418,11 +442,11 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
                     selected={this.state.selectedKeys}
                   />
                 </div>
-                {this.state.selectedKeys.length !== 0 && (
+                {shownKeys.length !== 0 && (
                   <div className="mt-4">
                     <h3 className="font-medium">Lines:</h3>
                     <div className="ml-3">
-                      {this.renderSeriesList(seriesColors)}
+                      {this.renderSeriesList(shownKeys, seriesColors)}
                     </div>
                   </div>
                 )}
@@ -484,11 +508,11 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
               </ThemeConsumer>
               {/* anchored to the top rather than full-bleed so the lines it
                   restyles stay visible underneath */}
-              {this.state.showSeriesSettings && (
+              {this.state.showSeriesSettings && shownKeys.length !== 0 && (
                 <div className="absolute inset-x-0 top-0 max-h-full overflow-auto rounded border border-gray-200 bg-white p-3 shadow-md dark:border-slate-600 dark:bg-slate-900">
                   <h3 className="font-medium">Lines:</h3>
                   <div className="ml-3">
-                    {this.renderSeriesList(seriesColors)}
+                    {this.renderSeriesList(shownKeys, seriesColors)}
                   </div>
                 </div>
               )}

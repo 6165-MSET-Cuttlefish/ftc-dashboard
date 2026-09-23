@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { flushSync } from 'react-dom';
 import clsx from 'clsx';
 
 import { ReactComponent as ExpandMoreIcon } from '@/assets/icons/expand_more.svg';
@@ -40,11 +41,28 @@ const GraphSeriesList = ({
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
 
+  // Otherwise the palette reopens, and takes focus, when the key comes back.
+  if (openKey !== null && !seriesKeys.includes(openKey)) setOpenKey(null);
+
   const reorderable = seriesKeys.length > 1;
 
   const move = (from: number, to: number) => {
     const reordered = moveItem(seriesKeys, from, to);
     if (reordered !== seriesKeys) onReorder(reordered);
+  };
+
+  const moveWithButton = (
+    button: HTMLButtonElement,
+    from: number,
+    to: number,
+  ) => {
+    const hadFocus = button === document.activeElement;
+    flushSync(() => move(from, to));
+
+    // Landing at either end disables the button just used, dropping its focus.
+    const row = button.closest('li');
+    if (hadFocus && button.disabled)
+      row?.querySelector<HTMLElement>('button:enabled')?.focus();
   };
 
   const endDrag = () => {
@@ -89,8 +107,9 @@ const GraphSeriesList = ({
             onDragStart={(evt) => {
               setDragIndex(i);
               evt.dataTransfer.effectAllowed = 'move';
-              // Firefox ignores drags that carry no data
-              evt.dataTransfer.setData('text/plain', key);
+              // Firefox ignores drags that carry no data; a private type keeps
+              // text fields from taking a missed drop as typed text
+              evt.dataTransfer.setData('application/x-ftc-graph-series', key);
             }}
             onDragEnd={endDrag}
             className={clsx(
@@ -115,7 +134,7 @@ const GraphSeriesList = ({
                   title={`Move ${key} one layer forward`}
                   aria-label={`Move ${key} one layer forward`}
                   disabled={i === 0}
-                  onClick={() => move(i, i - 1)}
+                  onClick={(evt) => moveWithButton(evt.currentTarget, i, i - 1)}
                 >
                   <ExpandMoreIcon className="h-4 w-4 rotate-180" />
                 </button>
@@ -125,7 +144,7 @@ const GraphSeriesList = ({
                   title={`Move ${key} one layer back`}
                   aria-label={`Move ${key} one layer back`}
                   disabled={i === seriesKeys.length - 1}
-                  onClick={() => move(i, i + 1)}
+                  onClick={(evt) => moveWithButton(evt.currentTarget, i, i + 1)}
                 >
                   <ExpandMoreIcon className="h-4 w-4" />
                 </button>
