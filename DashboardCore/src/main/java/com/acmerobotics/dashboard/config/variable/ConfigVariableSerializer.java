@@ -27,6 +27,15 @@ public class ConfigVariableSerializer implements JsonSerializer<ConfigVariable<?
             return obj;
         }
 
+        if (value instanceof EnumName) {
+            EnumName enumName = (EnumName) value;
+            obj.add(ConfigVariable.VALUE_KEY, new JsonPrimitive(enumName.name()));
+            if (enumName.className() != null) {
+                obj.add(ConfigVariable.ENUM_CLASS_KEY, new JsonPrimitive(enumName.className()));
+            }
+            return obj;
+        }
+
         if (configVariable.getType() == VariableType.DOUBLE && !Double.isFinite((double) value)) {
             obj.add(ConfigVariable.VALUE_KEY, new JsonPrimitive(String.valueOf(value)));
         } else {
