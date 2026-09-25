@@ -8,8 +8,9 @@ public class BasicVariable<T> extends ConfigVariable<T> {
     private Class<?> declaredClass;
 
     private static <T> VariableType inferType(ValueProvider<T> provider) {
-        Class<?> providerClass = provider.get().getClass();
-        return VariableType.fromClass(providerClass);
+        Object value = provider.get();
+        return VariableType.fromClass(
+                value instanceof Enum ? ((Enum<?>) value).getDeclaringClass() : value.getClass());
     }
 
     public BasicVariable(ValueProvider<T> provider) {

@@ -39,6 +39,20 @@ public class EnumConfigClassLoaderTests {
         }
     }
 
+    public enum Gait {
+        WALK {
+            @Override
+            public String toString() {
+                return "walking";
+            }
+        },
+        RUN
+    }
+
+    public static class GaitHolder {
+        public static Gait gait = Gait.WALK;
+    }
+
     public static class Holder {
         public static Mode mode = Mode.A;
         public static Mode unset;
@@ -56,6 +70,7 @@ public class EnumConfigClassLoaderTests {
         Holder.modes = new Mode[] {Mode.A, Mode.A};
         Holder.level = Level.LOW;
         Holder.count = 1;
+        GaitHolder.gait = Gait.WALK;
     }
 
     @Test
@@ -211,6 +226,38 @@ public class EnumConfigClassLoaderTests {
 
         String baseline = DashboardCore.GSON.toJson(sent.get(0));
         assertTrue(baseline.contains("\"mode\":{\"__type\":\"enum\",\"__value\":\"A\""), baseline);
+    }
+
+    @Test
+    public void servesAnEnumWhoseConstantsHaveBodies() {
+        List<Message> sent = new ArrayList<>();
+        register(GaitHolder.class).newSocket(sent::add).onOpen();
+
+        String config = DashboardCore.GSON.toJson(sent.get(0));
+        assertTrue(config.contains("\"__enumClass\":\"" + Gait.class.getName() + "\""), config);
+        assertTrue(config.contains("\"__enumValues\":[\"walking\",\"RUN\"]"), config);
+    }
+
+    @Test
+    public void savesAnEnumWhoseConstantsHaveBodies() {
+        DashboardCore core = register(GaitHolder.class);
+
+        save(core, "gait", enumValue("RUN", Gait.class));
+        assertSame(Gait.RUN, GaitHolder.gait);
+
+        save(core, "gait", enumValue("walking", Gait.class));
+        assertSame(Gait.WALK, GaitHolder.gait);
+    }
+
+    @Test
+    public void detectsAProviderEnumWhoseConstantsHaveBodies() {
+        DashboardCore core = new DashboardCore();
+        core.enabled = true;
+        VariableProvider<Gait> provider = new VariableProvider<>(Gait.WALK);
+        core.addConfigVariable("Holder", "gait", provider);
+
+        save(core, "gait", enumValue("RUN", Gait.class));
+        assertSame(Gait.RUN, provider.get());
     }
 
     private static String enumValue(String value, Class<?> enumClass) {
