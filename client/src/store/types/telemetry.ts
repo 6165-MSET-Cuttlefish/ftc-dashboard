@@ -145,6 +145,11 @@ export type TelemetryItem = {
   };
   log: string[];
   timestamp: number;
+  /** Replay only: the frame's offset inside its recording. */
+  recordedMs?: number;
+  /** Replay only: the state a seek landed on, not a packet the robot sent, so
+   *  views that keep history skip it. */
+  seed?: boolean;
 };
 
 export type ReceiveTelemetryAction = {

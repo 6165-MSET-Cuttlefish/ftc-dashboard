@@ -76,7 +76,7 @@ public abstract class RecorderTestOpMode extends LinearOpMode {
         }
         nextPhase();
 
-        // Live and replay must agree, though the codec stores deltas, not the key map.
+        // Live and replay must agree: a replayed packet carries only its own keys.
         while (opModeIsActive() && phase("drop", 8)) {
             TelemetryPacket p = basePacket();
             double t = getRuntime();
@@ -174,7 +174,7 @@ public abstract class RecorderTestOpMode extends LinearOpMode {
             TelemetryPacket p = new TelemetryPacket(false);
             double t = getRuntime();
             p.field()
-                .drawImage("/dash/decode.webp", -72, -72, 144, 144)
+                .drawImage("/dash/decode.webp", 0, 0, 144, 144)
                 .drawGrid(0, 0, 144, 144, 7, 7);
             p.put("x", 40 * Math.cos(t) * pathSign());
             p.put("y", 40 * Math.sin(t * 0.7));
@@ -186,10 +186,8 @@ public abstract class RecorderTestOpMode extends LinearOpMode {
         nextPhase();
 
         // The clearing primitive, which is also the op mode pre-init reset.
-        TelemetryPacket clear = basePacket();
-        clear.clearLines();
-        clear.addLine("CLEARED");
-        send(clear);
+        dashboard.clearTelemetry();
+        sleep(RecorderTestConfig.PACKET_INTERVAL_MS);
 
         double extraSeconds = RecorderTestConfig.EXTRA_MINUTES * 60;
         while (opModeIsActive() && phase("tail", extraSeconds)) {

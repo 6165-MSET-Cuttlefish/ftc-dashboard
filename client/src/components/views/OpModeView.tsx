@@ -28,8 +28,7 @@ const mapStateToProps = ({ status, gamepad, playback }: RootState) => ({
   ...status,
   ...gamepad,
   // This view renders live robot status while the rest of the dashboard may be
-  // showing a recording, so an actionable Stop button here is exactly the
-  // confusion the replay chrome exists to prevent.
+  // showing a recording, so starting a run from beside a replay is disabled.
   isReplaying: playback.mode === 'playback',
 });
 

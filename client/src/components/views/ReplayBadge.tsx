@@ -14,12 +14,25 @@ const TITLE: Record<ReplaySource, string> = {
   live: 'Still the live robot, while other panels show a recording.',
 };
 
+function wording(source: ReplaySource, count: number) {
+  if (source !== 'alongside' || count <= 1) {
+    return { label: LABEL[source], title: TITLE[source] };
+  }
+  return {
+    label: `+ ${count} Recorded`,
+    title: `Live, with ${count} recordings drawn behind it.`,
+  };
+}
+
 const ReplayBadge = ({
   source,
   onHeader = false,
+  count = 1,
 }: {
   source: ReplaySource;
   onHeader?: boolean;
+  /** How many recordings are drawn, where more than one can be. */
+  count?: number;
 }) => (
   <span
     className={clsx(
@@ -29,16 +42,16 @@ const ReplayBadge = ({
           'border border-white/70 text-white'
         : [
             'ml-2',
-            // Gray-900 text: white on amber-500 is 2.15:1, amber-900 only 4.2:1,
+            // Gray-900: white on amber-500 is 2.15:1, amber-900 only 4.2:1,
             // and Tailwind 3.2.4 has no amber-950.
             source === 'replacing'
               ? 'bg-amber-500 text-gray-900'
               : 'border border-amber-600 text-amber-700 dark:border-amber-500 dark:text-amber-400',
           ],
     )}
-    title={TITLE[source]}
+    title={wording(source, count).title}
   >
-    {LABEL[source]}
+    {wording(source, count).label}
   </span>
 );
 

@@ -39,8 +39,8 @@ export const DEFAULT_OPTIONS: Options = {
 };
 
 export const RECORDED_SUFFIX = '(rec)';
-/** Recorded series are told apart by the dash alone: on the dark theme alpha pulls
- *  the line towards the background and it stops matching its live twin's colour. */
+/** Recorded series are told apart by the dash alone: on the dark theme, alpha
+ *  pulls a line toward the background and off its live twin's colour. */
 const DASH_PATTERN = [5, 4];
 
 function niceNum(range: number, round: boolean) {
@@ -223,7 +223,7 @@ export default class Graph {
     };
   };
 
-  /** Colour per telemetry key, so a twin pair matches whichever arrives first. */
+  /** Colour per telemetry key, so twins match whichever arrives first. */
   colorByName: { [name: string]: string };
 
   beginGraphNowMs = Number.NaN; // in telemetry time
@@ -260,10 +260,17 @@ export default class Graph {
     this.beginGraphNowMs = Number.NaN; // in telemetry time
     this.beginRenderTimeMs = Number.NaN; // in browser time
 
-    // Dropping the samples is not clearing the pixels: render() is the only repaint
+    // Dropping samples does not clear pixels: render() is the only repaint
     // and it is gated on not being paused, so the curves would stay frozen.
     // eslint-disable-next-line no-self-assign
     this.canvas.width = this.canvas.width;
+  }
+
+  /** Moves every sample `ms` later. */
+  shift(ms: number) {
+    for (const { ts } of Object.values(this.data)) {
+      for (let i = 0; i < ts.length; i++) ts[i] += ms;
+    }
   }
 
   /** Recorded series must leave the key and the y-axis range, and reset() would
@@ -291,7 +298,7 @@ export default class Graph {
         if (name === 'time') continue;
 
         // Not isNaN: Java stringifies 1.0/0.0 as "Infinity", and one such value
-        // gives getYAxisScaling a NaN range that blanks every series on the plot.
+        // gives getYAxisScaling a NaN range that blanks every plotted series.
         if (!Number.isFinite(value)) continue;
 
         const key = recorded ? `${name} ${RECORDED_SUFFIX}` : name;
@@ -318,9 +325,9 @@ export default class Graph {
       }
     }
 
-    // `plotted`, not `samples.length`: a batch can carry a time row and no series
-    // (playbackMiddleware emits one to repaint the Field) whose timestamp of 0
-    // would anchor the plot clock and push every later sample off screen.
+    // `plotted`, not `samples.length`: a batch can carry a time row and no
+    // series, and a synthetic one's timestamp of 0 would anchor the plot clock
+    // and push every later sample off screen.
     if (isNaN(this.beginGraphNowMs) && plotted) {
       const maxT = samples[samples.length - 1].reduce(
         (acc, { name, value }) => (name === 'time' ? value : acc),
@@ -555,7 +562,7 @@ export default class Graph {
 
       if (ts.length === 0) return;
 
-      // The stored colour, not one recomputed from the loop index, which diverges
+      // The stored colour, not one from the loop index, which diverges
       // as soon as a series is added out of order.
       this.ctx.beginPath();
       this.ctx.strokeStyle = color;

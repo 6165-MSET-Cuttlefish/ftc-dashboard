@@ -158,7 +158,7 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
   noOpmodeRunning(props: GraphViewProps) {
     // While a recording drives the view, the robot's status is irrelevant and
     // often absent: opModeInfoList is empty whenever the dashboard is
-    // disconnected, which is exactly the offline pit-review case, and reading it
+    // disconnected, which is just the offline pit-review case, and reading it
     // here would keep the graph paused for the whole replay.
     if (props.playbackMode === 'playback') return !props.isReplaying;
 
@@ -233,7 +233,8 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
       return m.rows;
     }
 
-    const rows = this.props.telemetry.map((packet, i, all) => {
+    const history = this.props.telemetry.filter((packet) => !packet.seed);
+    const rows = history.map((packet, i, all) => {
       const row = [
         { name: 'time', value: packet.timestamp },
         ...Object.keys(packet.data)
@@ -339,7 +340,7 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
                 <h3 className="mt-6 font-medium">Telemetry to graph:</h3>
                 <div className="ml-3">
                   <MultipleCheckbox
-                    // Seeds `selected` into private state in its constructor with
+                    // Copies `selected` into state in its constructor with
                     // no derived-state hook, so remounting is the only way to
                     // re-seed it when a recording loads or seeks backwards.
                     key={this.props.foldToken}
@@ -399,6 +400,7 @@ class GraphView extends Component<GraphViewProps, GraphViewState> {
                       : colors.gray[900],
                   }}
                   paused={this.state.userPaused || this.state.opmodePaused}
+                  userPaused={this.state.userPaused}
                   pausedTime={this.state.pausedTime}
                   resetToken={this.props.foldToken}
                   showRecorded={this.props.playbackMode === 'ghost'}

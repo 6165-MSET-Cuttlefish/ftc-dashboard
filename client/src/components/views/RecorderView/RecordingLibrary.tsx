@@ -12,13 +12,18 @@ type RecordingLibraryProps = {
   entries: RecordingListEntry[];
   /** The recording currently being reviewed, if any. */
   openId: string | null;
+  /** Checked for compare mode, which draws each of them over the live Field. */
+  selectedIds: string[];
+  recordingNowId: string | null;
+  autoRecord: boolean;
+  onToggleSelected: (id: string) => void;
   onSelect: (id: string) => void;
   onRename: (id: string, name: string) => void;
   onDelete: (id: string) => void;
   onExport: (id: string) => void;
 };
 
-/** One line of plain prose beats a row of colour-coded chips nobody can decode. */
+/** One line of prose beats a row of colour-coded chips nobody can decode. */
 function describe(entry: RecordingListEntry): string {
   const { meta, source } = entry;
   const parts: string[] = [];
@@ -44,6 +49,10 @@ function describe(entry: RecordingListEntry): string {
 const RecordingLibrary = ({
   entries,
   openId,
+  selectedIds,
+  recordingNowId,
+  autoRecord,
+  onToggleSelected,
   onSelect,
   onRename,
   onDelete,
@@ -55,8 +64,10 @@ const RecordingLibrary = ({
   if (entries.length === 0) {
     return (
       <p className="rounded border border-dashed border-gray-300 py-4 px-3 text-center text-sm text-gray-500 dark:border-slate-600 dark:text-slate-400">
-        No recordings yet. Run an op mode and one is saved automatically, or
-        import a file someone shared with you.
+        No recordings yet.{' '}
+        {autoRecord
+          ? 'Run an op mode and one is saved automatically, or import a file someone shared with you.'
+          : 'Turn on Record op modes automatically below, press Record now, or import a file someone shared with you.'}
       </p>
     );
   }
@@ -66,6 +77,7 @@ const RecordingLibrary = ({
       {entries.map((entry) => {
         const { meta, source } = entry;
         const isOpen = meta.id === openId;
+        const isRecording = meta.id === recordingNowId;
 
         return (
           <li
@@ -77,6 +89,23 @@ const RecordingLibrary = ({
                 : 'border-gray-200 hover:border-gray-400 dark:border-slate-600 dark:hover:border-slate-400',
             )}
           >
+            <input
+              type="checkbox"
+              className="mr-1 shrink-0 rounded text-primary-600 disabled:opacity-50"
+              aria-label={`Compare ${meta.name}`}
+              title={
+                isOpen
+                  ? 'Open, so it is always compared'
+                  : isRecording
+                  ? 'Still being recorded'
+                  : 'Also draw this one when comparing with live'
+              }
+              checked={
+                isOpen || (!isRecording && selectedIds.includes(meta.id))
+              }
+              disabled={isOpen || isRecording}
+              onChange={() => onToggleSelected(meta.id)}
+            />
             {editingId === meta.id ? (
               <input
                 className="min-w-0 flex-1 rounded border-gray-300 py-0.5 px-1 text-sm dark:bg-slate-800"

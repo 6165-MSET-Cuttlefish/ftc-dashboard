@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import clsx from 'clsx';
 
 import OpModeStatus from '@/enums/OpModeStatus';
@@ -8,6 +8,7 @@ import { MUTED_TEXT, SMALL_BUTTON } from './controlStyles';
 
 const SPEEDS = [0.25, 0.5, 1, 2, 4];
 const MAX_TICKS = 6;
+const MIN_SPAN_PCT = 0.25;
 
 type TransportBarProps = {
   cursorMs: number;
@@ -27,6 +28,8 @@ type TransportBarProps = {
   /** Compare mode, where the cursor tracks the live run. Speed and loop are
    *  meaningless there: the recording is pinned to real time. */
   followsLive?: boolean;
+  /** Lined up on the live run now, rather than moved off it or waiting. */
+  following?: boolean;
 };
 
 function pct(t: number, durationMs: number) {
@@ -34,7 +37,7 @@ function pct(t: number, durationMs: number) {
   return Math.max(0, Math.min(100, (t / durationMs) * 100));
 }
 
-/** Hard-bounded rather than derived from the duration alone: an imported recording
+/** Hard-bounded, not derived from the duration alone: an imported recording
  *  can carry a non-finite one, and the loop then pins the main thread. */
 function rulerTicks(durationMs: number): number[] {
   if (!Number.isFinite(durationMs) || durationMs <= 0) return [0];
@@ -71,7 +74,7 @@ const Track = ({
   onSeek: (t: number) => void;
 }) => {
   // One span per RUN of identical status, not per sample: the recorder samples
-  // once a second, so a ten-minute match would be 600 absolutely positioned nodes
+  // once a second, so a ten-minute match would be 600 positioned nodes
   // reconciled on every cursor tick.
   const spans = useMemo(() => {
     const runs: {
@@ -92,8 +95,13 @@ const Track = ({
           : null;
       const open = runs[runs.length - 1];
 
-      if (open && open.state === status.activeOpModeStatus) {
-        // The range, not whichever sample opened the span: sag is what is worth reading.
+      // A span under MIN_SPAN_PCT is not visible on its own, and an imported
+      // file can alternate states on every one of its samples.
+      if (
+        open &&
+        (open.state === status.activeOpModeStatus || open.width < MIN_SPAN_PCT)
+      ) {
+        // The range, not the span's first sample: sag is what is worth reading.
         open.end = end;
         open.width = pct(end - open.t, durationMs);
         if (volts !== null) {
@@ -138,8 +146,8 @@ const Track = ({
         ))}
       </div>
 
-      {/* z-10 for the same reason as the markers: this title is the only place the
-          battery voltage at a moment is readable. */}
+      {/* z-10, as for the markers: this title is the only place the battery
+          voltage at a moment is readable. */}
       <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-1 overflow-hidden rounded-t">
         {spans.map((s, i) => (
           <div
@@ -227,23 +235,45 @@ const TransportBar = ({
   onSetLoop,
   onStep,
   followsLive = false,
+  following = false,
 }: TransportBarProps) => {
   const ticks = useMemo(() => rulerTicks(durationMs), [durationMs]);
 
-  // Local state owns the value while dragging, or the cursor tick slides the playhead
-  // out from under a still finger. Keys bypass it, as no pointer-up would clear it.
+  // Local state owns the value while dragging, or the cursor tick slides the
+  // playhead away from a still finger. Keys skip it: no pointer-up clears it.
   const trackRef = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
   const [dragMs, setDragMs] = useState<number | null>(null);
   const shownMs = dragMs ?? cursorMs;
+
+  // A seek re-sends seconds of history to every view, and pointer events can
+  // outpace frames, so a drag seeks once a frame at most, and at release.
+  const pendingSeek = useRef<number | null>(null);
+  const seekFrame = useRef(0);
+  const flushSeek = () => {
+    cancelAnimationFrame(seekFrame.current);
+    seekFrame.current = 0;
+    const t = pendingSeek.current;
+    pendingSeek.current = null;
+    if (t !== null) onSeek(t);
+  };
+  const seekNextFrame = (t: number) => {
+    pendingSeek.current = t;
+    if (seekFrame.current === 0) {
+      seekFrame.current = requestAnimationFrame(flushSeek);
+    }
+  };
+  useEffect(() => () => cancelAnimationFrame(seekFrame.current), []);
+
   const endDrag = () => {
+    flushSeek();
     dragging.current = false;
     setDragMs(null);
   };
 
-  // Linear across the full track width, the same mapping the playhead, markers and
-  // ruler are drawn with. A native range input insets the thumb by half its width,
-  // so pointer and playhead would agree only at the midpoint and the ends.
+  // Linear across the whole track width, the mapping the playhead, markers and
+  // ruler use. A native range input insets the thumb by half its width, so
+  // pointer and playhead would agree only at the midpoint and the ends.
   const msAt = (clientX: number) => {
     const el = trackRef.current;
     if (!el) return null;
@@ -284,8 +314,8 @@ const TransportBar = ({
           setDragMs(t);
           onSeek(t);
 
-          // Capture only keeps the drag alive off the track, and it throws when the
-          // pointer is already gone, which a fast tap or a synthetic event produces.
+          // Capture only keeps the drag alive off the track, and throws if the
+          // pointer is already gone, as after a fast tap or a synthetic event.
           try {
             e.currentTarget.setPointerCapture(e.pointerId);
           } catch {
@@ -299,20 +329,20 @@ const TransportBar = ({
           if (t === null) return;
 
           setDragMs(t);
-          onSeek(t);
+          seekNextFrame(t);
         }}
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
         onLostPointerCapture={endDrag}
         onKeyDown={(e) => {
-          // The marker buttons are children, so without this a Space on a focused
-          // marker bubbles here and is preventDefault()'d before it can activate.
+          // Marker buttons are children, so without this a Space on a focused
+          // marker bubbles here and is preventDefault()'d before activating.
           if (e.target !== e.currentTarget) return;
 
           const d = e.shiftKey ? 1000 : 100;
           switch (e.key) {
             case ' ':
-              // The tile's own shortcuts only fire when the tile is the target, and
+              // The tile's shortcuts need the tile to be the target, and
               // the track takes focus on click.
               e.preventDefault();
               if (isPlaying) onPause();
@@ -349,8 +379,8 @@ const TransportBar = ({
         />
       </div>
 
-      {/* Absolutely positioned, not justify-between: ticks land on round times that
-          do not divide the duration evenly, so even spacing would mislabel them. */}
+      {/* Positioned, not justify-between: ticks land on round times, which do
+          not divide the duration evenly; even spacing would mislabel them. */}
       <div className="relative mt-0.5 h-4 text-xs text-gray-500 dark:text-slate-400">
         {ticks.map((t) => (
           <span
@@ -373,9 +403,13 @@ const TransportBar = ({
             <Swatch className="bg-gray-400 dark:bg-slate-500">Stopped</Swatch>
           </>
         )}
-        {markers.length > 0 && (
-          <Swatch className="bg-red-500">Event, click to jump</Swatch>
+        {markers.some((m) => m.kind !== 'error') && (
+          <Swatch className="bg-gray-400 dark:bg-slate-400">Event</Swatch>
         )}
+        {markers.some((m) => m.kind === 'error') && (
+          <Swatch className="bg-red-500">Error</Swatch>
+        )}
+        {markers.length > 0 && <span>click a marker to jump to it</span>}
       </div>
 
       <div className="mt-1 flex flex-wrap items-center gap-2">
@@ -410,9 +444,11 @@ const TransportBar = ({
 
         <span className="ml-auto flex items-center gap-2 text-xs">
           {followsLive ? (
-            <span className="text-gray-500 dark:text-slate-400">
-              Following the live run
-            </span>
+            following && (
+              <span className="text-gray-500 dark:text-slate-400">
+                Following the live run
+              </span>
+            )
           ) : (
             <>
               <label className="flex items-center gap-1">

@@ -1,7 +1,20 @@
+import OpModeStatus from '@/enums/OpModeStatus';
 import type { DrawOp, TelemetryItem } from '@/store/types/telemetry';
 import type { RobotStatus } from '@/store/types/status';
 
-export const RECORDING_VERSION = 2;
+/** Version 3 added `sets`. Version 2 files decode and replay as before. */
+export const RECORDING_VERSION = 3;
+
+/** Several full matches, so only a run left going in the pit reaches it. */
+export const RECORDING_CAP = {
+  durationMs: 30 * 60 * 1000,
+  bytes: 100 * 1024 * 1024,
+};
+
+/** A stalled link delivers packets late, never early, but a server that drops
+ *  packets while stalled can open a real gap of a couple of seconds. */
+const CLOCK_STEP_BACK_MS = 1000;
+const CLOCK_STEP_AHEAD_MS = 5000;
 
 /** Keyframe spacing. Bounds a seek to at most this many forward folds. */
 const KEYFRAME_INTERVAL = 50;
@@ -43,7 +56,7 @@ export type RecordingMeta = {
   name: string;
   opMode: string;
   createdAt: number;
-  /** First recorded packet's own timestamp, kept so exports can be re-aligned. */
+  /** First recorded packet's own timestamp, so exports can be re-aligned. */
   robotT0: number;
   durationMs: number;
   frameCount: number;
@@ -53,8 +66,10 @@ export type RecordingMeta = {
     field: boolean;
   };
   origin: 'recorded' | 'imported';
-  /** Set by rename, export, import or Record now; pinned ones are never evicted. */
+  /** Set by rename, export, import or Record now. Pinned is never evicted. */
   pinned: boolean;
+  /** Began after its run did, so it has no op mode start to line up on. */
+  joined?: boolean;
 };
 
 /** `dataDelta` merges, `log` replaces, and a null ref means unchanged from the
@@ -67,6 +82,7 @@ export type Frame = [
   fieldRef: number | null,
   flags?: number,
   extraRef?: number | null,
+  keySetRef?: number | null,
 ];
 
 export type Keyframe = {
@@ -78,6 +94,9 @@ export type Keyframe = {
   o: number;
   fd: number;
   x: number;
+  k?: number;
+  lo?: number;
+  lf?: number;
 };
 
 export type Recording = {
@@ -91,6 +110,29 @@ export type Recording = {
   /** Interned unknown packet fields, so a future dashboard's data survives a
    *  round trip. Index 0 is always empty. */
   xdict: Record<string, unknown>[];
+  /** Interned lists of the key indices each packet carried, since a delta
+   *  cannot say that a key went unsent. Empty in a version 2 recording. */
+  sets: number[][];
+  frames: Frame[];
+  index: Keyframe[];
+  status: StatusSample[];
+  markers: Marker[];
+};
+
+/** A contiguous slice of a recording, as one flush appends it. Each base is the
+ *  slice's offset in the recording, which frame refs and keyframes index. */
+export type RecordingChunk = {
+  base: {
+    frames: number;
+    keys: number;
+    dict: number;
+    xdict: number;
+    sets?: number;
+  };
+  keys: string[];
+  dict: DrawOp[][];
+  xdict: Record<string, unknown>[];
+  sets: number[][];
   frames: Frame[];
   index: Keyframe[];
   status: StatusSample[];
@@ -106,6 +148,12 @@ export type FoldedState = {
   o: number;
   fd: number;
   x: number;
+  /** The last frame's key set, or null when the recording has none. */
+  k: number | null;
+  /** The last non-empty overlay and the background sent with it: what the
+   *  Field shows, as the server strips all but one packet's overlay a batch. */
+  lo: number;
+  lf: number;
   /** Index of the last frame applied, or -1 if none. */
   frameIdx: number;
 };
@@ -116,6 +164,8 @@ const PACKET_KNOWN_FIELDS = new Set([
   'field',
   'fieldOverlay',
   'timestamp',
+  'recordedMs',
+  'seed',
 ]);
 
 function frameFlags(f: Frame): number {
@@ -126,32 +176,70 @@ function frameExtraRef(f: Frame): number | null {
   return f[6] ?? null;
 }
 
-/** Stable-enough key for interning. Op arrays come off the wire in field order. */
+function frameKeySetRef(f: Frame): number | null {
+  return f[7] ?? null;
+}
+
+/** Stable enough to intern by: op arrays come off the wire in field order. */
 function internKey(value: unknown): string {
   return JSON.stringify(value);
 }
 
+/** A moving robot's overlay never repeats, so deduplicating against every value
+ *  ever seen would hold the whole run in memory for no gain. */
+const RECENT_INTERN_COUNT = 64;
+const RECENT_INTERN_BYTES = 1024 * 1024;
+
 class Interner<T> {
+  /** Values not yet released; values[0] has index `base`. */
   readonly values: T[] = [];
-  /** A moving robot interns an overlay per frame, so this is most of the recording. */
+  base = 0;
+  /** A moving robot interns an overlay per frame: most of the recording. */
   bytes = 0;
-  private readonly byKey = new Map<string, number>();
+  private count = 1;
+  private readonly emptyKey: string;
+  private readonly recent = new Map<string, number>();
+  private recentBytes = 0;
 
   constructor(empty: T) {
     this.values.push(empty);
-    this.byKey.set(internKey(empty), 0);
+    this.emptyKey = internKey(empty);
   }
 
   intern(value: T): number {
     const key = internKey(value);
-    const existing = this.byKey.get(key);
-    if (existing !== undefined) return existing;
+    if (key === this.emptyKey) return 0;
 
-    const idx = this.values.length;
+    const existing = this.recent.get(key);
+    if (existing !== undefined) {
+      // Re-inserted so a value sent all run, like the field background, stays.
+      this.recent.delete(key);
+      this.recent.set(key, existing);
+      return existing;
+    }
+
+    const idx = this.count;
+    this.count += 1;
     this.values.push(value);
-    this.byKey.set(key, idx);
     this.bytes += key.length;
+
+    this.recent.set(key, idx);
+    this.recentBytes += key.length;
+    while (
+      this.recent.size > 1 &&
+      (this.recent.size > RECENT_INTERN_COUNT ||
+        this.recentBytes > RECENT_INTERN_BYTES)
+    ) {
+      const oldest = this.recent.keys().next().value as string;
+      this.recent.delete(oldest);
+      this.recentBytes -= oldest.length;
+    }
     return idx;
+  }
+
+  release(n: number) {
+    this.values.splice(0, n);
+    this.base += n;
   }
 }
 
@@ -161,26 +249,44 @@ export type EncoderStats = {
   durationMs: number;
 };
 
+export type EncoderSummary = Pick<
+  RecordingMeta,
+  'robotT0' | 'durationMs' | 'frameCount' | 'bytes'
+>;
+
 export type Encoder = {
   addBatch(packets: TelemetryItem[], wallElapsedMs: number): void;
   addStatus(status: Partial<RobotStatus>, wallElapsedMs: number): void;
   addMarker(marker: Marker): void;
+  /** A robot timestamp on the recording's clock, or null before a packet. */
+  robotTime(timestamp: number): number | null;
   stats(): EncoderStats;
-  snapshot(
-    meta: Omit<RecordingMeta, 'durationMs' | 'frameCount' | 'bytes'>,
-  ): Recording;
+  summary(): EncoderSummary;
+  /** Everything added since the last commit. Nothing is released until then,
+   *  so a failed write can be retried with the next flush's data appended. */
+  drain(): RecordingChunk;
+  commit(chunk: RecordingChunk): void;
+  /** The current fold as one packet, for a continuation to start from. */
+  carry(): TelemetryItem;
 };
 
 export function createEncoder(): Encoder {
+  // Each array holds only what is not yet committed; its base is its offset.
   const keys: string[] = [];
+  let keysBase = 0;
   const keyIndex = new Map<string, number>();
   const ops = new Interner<DrawOp[]>([]);
   const extras = new Interner<Record<string, unknown>>({});
+  const sets = new Interner<number[]>([]);
 
   const frames: Frame[] = [];
+  let framesBase = 0;
   const index: Keyframe[] = [];
   const status: StatusSample[] = [];
   const markers: Marker[] = [];
+  let markerCount = 0;
+  let lastStatusT = 0;
+  let lastMarkerT = 0;
 
   // Running fold, so keyframes and deltas can be computed in one pass.
   let data: Record<string, string> = {};
@@ -188,60 +294,77 @@ export function createEncoder(): Encoder {
   let overlayRef = 0;
   let fieldRef = 0;
   let extraRef = 0;
+  let setRef = 0;
+  let shownOverlay = 0;
+  let shownField = 0;
+  let shownOps: { overlay: DrawOp[]; field: DrawOp[] } = {
+    overlay: [],
+    field: [],
+  };
+  let extraFields: Record<string, unknown> = {};
 
   let robotT0 = Number.NaN;
-  /** Browser-elapsed time at which robotT0 was captured, so both clocks share an origin. */
+  /** Browser-elapsed time at robotT0's capture: both clocks share an origin. */
   let robotWallBase = 0;
   let lastT = 0;
+  let lastPacketT = 0;
+  let lastPacketWall = 0;
+  let lastPacketTs = Number.NaN;
   let bytes = 0;
 
   function keyIdx(key: string): number {
     const existing = keyIndex.get(key);
     if (existing !== undefined) return existing;
 
-    const idx = keys.length;
+    const idx = keysBase + keys.length;
     keys.push(key);
     keyIndex.set(key, idx);
     return idx;
   }
 
+  function frameCount(): number {
+    return framesBase + frames.length;
+  }
+
   function pushKeyframeIfDue() {
-    if (frames.length % KEYFRAME_INTERVAL !== 0) return;
+    if (frameCount() % KEYFRAME_INTERVAL !== 0) return;
 
     index.push({
-      f: frames.length - 1,
+      f: frameCount() - 1,
       t: lastT,
       data: { ...data },
       log: [...log],
       o: overlayRef,
       fd: fieldRef,
       x: extraRef,
+      k: setRef,
+      lo: shownOverlay,
+      lf: shownField,
     });
+    // Each copies the whole fold: most of the size when telemetry is constant.
+    bytes += internKey(index[index.length - 1]).length;
   }
 
   function pushFrame(f: Frame) {
     frames.push(f);
-    // Rough, but enough for the size readout and far cheaper than stringifying it all.
+    // Rough, but enough for the size readout and far cheaper than stringifying.
     bytes += internKey(f).length;
     pushKeyframeIfDue();
   }
 
-  /** Frame tuples plus both intern dictionaries, which dominate for a moving robot. */
+  /** Every track, plus the intern dictionaries a moving robot fills. */
   function totalBytes(): number {
-    return bytes + ops.bytes + extras.bytes;
+    return bytes + ops.bytes + extras.bytes + sets.bytes;
   }
 
   /** All three tracks: an op mode pushing no telemetry still has status and
    *  marker history, and duration 0 collapses the transport bar. */
   function duration(): number {
-    let end = lastT;
-    if (status.length > 0) end = Math.max(end, status[status.length - 1][0]);
-    for (const m of markers) end = Math.max(end, m.t);
-    return end;
+    return Math.max(lastT, lastStatusT, lastMarkerT);
   }
 
-  /** The robot's clock can be years off, so only its elapsed part is usable: it is
-   *  rebased onto the browser-elapsed origin that status samples are stamped on. */
+  /** The robot's clock can be years off, so only its elapsed part is used: it
+   *  is rebased onto the browser-elapsed origin of the status samples. */
   function relativeTime(packet: TelemetryItem, wallElapsedMs: number): number {
     const ts = packet.timestamp;
     if (typeof ts !== 'number' || !isFinite(ts) || ts <= 0)
@@ -250,7 +373,16 @@ export function createEncoder(): Encoder {
     if (isNaN(robotT0)) {
       robotT0 = ts;
       robotWallBase = wallElapsedMs;
+    } else if (
+      ts - lastPacketTs < -CLOCK_STEP_BACK_MS ||
+      ts - lastPacketTs - (wallElapsedMs - lastPacketWall) > CLOCK_STEP_AHEAD_MS
+    ) {
+      // The driver station set the robot's clock. Rebased so this packet
+      // follows the last by the browser time between them.
+      robotT0 = ts;
+      robotWallBase = lastPacketT + Math.max(0, wallElapsedMs - lastPacketWall);
     }
+    lastPacketTs = ts;
 
     const t = ts - robotT0 + robotWallBase;
     if (t < 0 || t > 24 * 60 * 60 * 1000) return wallElapsedMs;
@@ -260,13 +392,17 @@ export function createEncoder(): Encoder {
   return {
     addBatch(packets, wallElapsedMs) {
       if (packets.length === 0) {
-        // The deliberate clearing primitive. Never compress these away: they are
-        // the opmode pre-init reset, and dropping one bleeds stale keys across runs.
+        // The deliberate clearing primitive. Never compress these away: they
+        // are the pre-init reset; dropping one bleeds stale keys between runs.
         data = {};
         log = [];
-        // Pinned to the last packet, not the browser clock: later timestamps are
-        // clamped to Math.max(lastT, ...), so a clear stamped ahead flattens the run.
-        if (isNaN(robotT0)) lastT = Math.max(lastT, wallElapsedMs);
+        // Offset from the last packet by browser time, not put on the browser
+        // clock: later timestamps are clamped to lastT, so a clear stamped
+        // ahead of the robot clock would flatten the run. Server batching can
+        // only make this early.
+        lastT = isNaN(robotT0)
+          ? Math.max(lastT, wallElapsedMs)
+          : Math.max(lastT, lastPacketT + wallElapsedMs - lastPacketWall);
         pushFrame([lastT, null, null, null, null, FLAG_CLEAR]);
         return;
       }
@@ -274,11 +410,15 @@ export function createEncoder(): Encoder {
       for (const packet of packets) {
         const t = Math.max(lastT, relativeTime(packet, wallElapsedMs));
         lastT = t;
+        lastPacketT = t;
+        lastPacketWall = wallElapsedMs;
 
         let dataDelta: Record<string, string> | null = null;
         const packetData = packet.data ?? {};
+        const present: number[] = [];
         for (const k of Object.keys(packetData)) {
           const v = packetData[k];
+          present.push(keyIdx(k));
           if (data[k] === v) continue;
 
           data[k] = v;
@@ -305,6 +445,7 @@ export function createEncoder(): Encoder {
           extra[k] = (packet as unknown as Record<string, unknown>)[k];
         }
         const nextExtra = extra === null ? 0 : extras.intern(extra);
+        const nextSet = sets.intern(present);
 
         const frame: Frame = [
           t,
@@ -313,56 +454,184 @@ export function createEncoder(): Encoder {
           nextOverlay === overlayRef ? null : nextOverlay,
           nextField === fieldRef ? null : nextField,
         ];
-        if (nextExtra !== extraRef) {
+        if (nextExtra !== extraRef || nextSet !== setRef) {
           frame[5] = 0;
-          frame[6] = nextExtra;
+          frame[6] = nextExtra === extraRef ? null : nextExtra;
         }
+        if (nextSet !== setRef) frame[7] = nextSet;
 
         overlayRef = nextOverlay;
         fieldRef = nextField;
         extraRef = nextExtra;
+        setRef = nextSet;
+        if (nextOverlay !== 0) {
+          shownOverlay = nextOverlay;
+          shownField = nextField;
+          shownOps = {
+            overlay: packet.fieldOverlay?.ops ?? [],
+            field: packet.field?.ops ?? [],
+          };
+        }
+        extraFields = extra ?? {};
 
         pushFrame(frame);
       }
     },
 
     addStatus(next, wallElapsedMs) {
-      status.push([Math.max(0, wallElapsedMs), next]);
+      lastStatusT = Math.max(0, wallElapsedMs);
+      const sample: StatusSample = [lastStatusT, next];
+      status.push(sample);
+      bytes += internKey(sample).length;
     },
 
     addMarker(marker) {
-      if (markers.length >= MAX_TIMELINE_ENTRIES) return;
+      // Room kept for op mode markers, which a burst of log lines crowds out.
+      const cap =
+        marker.kind === 'opmode'
+          ? MAX_TIMELINE_ENTRIES
+          : MAX_TIMELINE_ENTRIES - OPMODE_MARKER_RESERVE;
+      if (markerCount >= cap) return;
+      markerCount += 1;
+      lastMarkerT = Math.max(lastMarkerT, marker.t);
       markers.push(marker);
+      bytes += internKey(marker).length;
+    },
+
+    robotTime(timestamp) {
+      if (isNaN(robotT0) || !isFinite(timestamp)) return null;
+      return timestamp - robotT0 + robotWallBase;
     },
 
     stats() {
       return {
-        frames: frames.length,
+        frames: frameCount(),
         bytes: totalBytes(),
         durationMs: duration(),
       };
     },
 
-    snapshot(meta) {
+    summary() {
       return {
-        v: RECORDING_VERSION,
-        id: meta.id,
-        meta: {
-          ...meta,
-          robotT0: isNaN(robotT0) ? 0 : robotT0,
-          durationMs: duration(),
-          frameCount: frames.length,
-          bytes: totalBytes(),
+        robotT0: isNaN(robotT0) ? 0 : robotT0,
+        durationMs: duration(),
+        frameCount: frameCount(),
+        bytes: totalBytes(),
+      };
+    },
+
+    drain() {
+      return {
+        base: {
+          frames: framesBase,
+          keys: keysBase,
+          dict: ops.base,
+          xdict: extras.base,
+          sets: sets.base,
         },
         keys: [...keys],
         dict: [...ops.values],
         xdict: [...extras.values],
+        sets: [...sets.values],
         frames: [...frames],
         index: [...index],
         status: [...status],
         markers: [...markers],
       };
     },
+
+    commit(chunk) {
+      if (chunk.base.frames !== framesBase || chunk.base.keys !== keysBase) {
+        return;
+      }
+      frames.splice(0, chunk.frames.length);
+      framesBase += chunk.frames.length;
+      keys.splice(0, chunk.keys.length);
+      keysBase += chunk.keys.length;
+      ops.release(chunk.dict.length);
+      extras.release(chunk.xdict.length);
+      sets.release(chunk.sets.length);
+      index.splice(0, chunk.index.length);
+      status.splice(0, chunk.status.length);
+      markers.splice(0, chunk.markers.length);
+    },
+
+    carry() {
+      return {
+        ...extraFields,
+        timestamp: 0,
+        data: { ...data },
+        log: [],
+        field: { ops: shownOps.field },
+        fieldOverlay: { ops: shownOps.overlay },
+      };
+    },
+  };
+}
+
+/** Chunks in sequence order back into one recording. Stops at the first chunk
+ *  that does not start where the previous one ended, since every ref after a
+ *  gap would name the wrong entry. */
+export function joinChunks(
+  id: string,
+  meta: RecordingMeta,
+  chunks: Partial<RecordingChunk>[],
+): Recording {
+  const rec: Recording = {
+    v: RECORDING_VERSION,
+    id,
+    meta,
+    keys: [],
+    dict: [],
+    xdict: [],
+    sets: [],
+    frames: [],
+    index: [],
+    status: [],
+    markers: [],
+  };
+  const append = <T>(into: T[], from: T[] | undefined) => {
+    if (!Array.isArray(from)) return;
+    for (const item of from) into.push(item);
+  };
+
+  for (const c of chunks) {
+    const base = c.base;
+    if (
+      base &&
+      (base.frames !== rec.frames.length ||
+        base.keys !== rec.keys.length ||
+        base.dict !== rec.dict.length ||
+        base.xdict !== rec.xdict.length ||
+        (base.sets !== undefined && base.sets !== rec.sets.length))
+    ) {
+      break;
+    }
+    append(rec.keys, c.keys);
+    append(rec.dict, c.dict);
+    append(rec.xdict, c.xdict);
+    append(rec.sets, c.sets);
+    append(rec.frames, c.frames);
+    append(rec.index, c.index);
+    append(rec.status, c.status);
+    append(rec.markers, c.markers);
+  }
+
+  return rec;
+}
+
+/** All of `rec` as the one chunk an import or a migrated row is stored as. */
+export function wholeChunk(rec: Recording): RecordingChunk {
+  return {
+    base: { frames: 0, keys: 0, dict: 0, xdict: 0, sets: 0 },
+    keys: rec.keys,
+    dict: rec.dict,
+    xdict: rec.xdict,
+    sets: rec.sets,
+    frames: rec.frames,
+    index: rec.index,
+    status: rec.status,
+    markers: rec.markers,
   };
 }
 
@@ -376,7 +645,7 @@ function str(value: unknown, fallback: string): string {
   return typeof value === 'string' ? value : fallback;
 }
 
-/** Every field is normalized: this is also the trust boundary for imported files. */
+/** Every field is normalized: this is also the trust boundary for imports. */
 function decodeMeta(value: unknown, fallbackId: string): RecordingMeta {
   const m = (
     typeof value === 'object' && value !== null ? value : {}
@@ -387,11 +656,11 @@ function decodeMeta(value: unknown, fallbackId: string): RecordingMeta {
 
   return {
     id: str(m.id, fallbackId),
-    name: str(m.name, 'Recording').slice(0, 200),
+    name: str(m.name, '').slice(0, 200),
     opMode: str(m.opMode, '').slice(0, 200),
     createdAt: num(m.createdAt, 0),
     robotT0: num(m.robotT0, 0),
-    // A NaN duration NaNs every transport-bar percentage; a huge one squashes them to 0.
+    // A NaN duration NaNs transport-bar percentages; a huge one zeroes them.
     durationMs: Math.max(
       0,
       Math.min(num(m.durationMs, 0), 24 * 60 * 60 * 1000),
@@ -404,6 +673,7 @@ function decodeMeta(value: unknown, fallbackId: string): RecordingMeta {
     },
     origin: m.origin === 'imported' ? 'imported' : 'recorded',
     pinned: m.pinned === true,
+    ...(m.joined === true ? { joined: true } : {}),
   };
 }
 
@@ -413,6 +683,34 @@ function clampDuration(value: number): number {
   return Math.max(0, Math.min(num(value, 0), MAX_DURATION_MS));
 }
 
+/** A file's extras must not pose as a replay marker or a packet's field. */
+function unknownFields(x: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const k of Object.keys(x)) {
+    if (!PACKET_KNOWN_FIELDS.has(k)) out[k] = x[k];
+  }
+  return out;
+}
+
+/** TransportBar interpolates these into a title, and a value whose toString is
+ *  not callable throws there during render. */
+function decodeStatus(value: object): Partial<RobotStatus> {
+  const s = value as Record<string, unknown>;
+  const out: Partial<RobotStatus> = {};
+  if (typeof s.activeOpMode === 'string') {
+    out.activeOpMode = s.activeOpMode.slice(0, 200);
+  }
+  const known = Object.values(OpModeStatus) as unknown[];
+  if (known.includes(s.activeOpModeStatus)) {
+    out.activeOpModeStatus =
+      s.activeOpModeStatus as RobotStatus['activeOpModeStatus'];
+  }
+  if (typeof s.batteryVoltage === 'number' && isFinite(s.batteryVoltage)) {
+    out.batteryVoltage = s.batteryVoltage;
+  }
+  return out;
+}
+
 /** An index into `arr`, or null. Guards every dictionary dereference. */
 function refIndex(value: unknown, length: number): number | null {
   if (typeof value !== 'number' || !Number.isInteger(value)) return null;
@@ -420,13 +718,14 @@ function refIndex(value: unknown, length: number): number | null {
   return value;
 }
 
-/** Every slot has a crash behind it: a string dict-ref resolves against the Array
- *  itself, a non-array log throws in the tick, a non-string delta reaches React. */
+/** Every slot has a crash behind it: a string dict-ref resolves against Array
+ *  itself, a non-array log throws in tick, a non-string delta reaches React. */
 function decodeFrame(
   f: unknown,
   keyCount: number,
   dictLength: number,
   xdictLength: number,
+  setsLength: number,
 ): Frame | null {
   if (!Array.isArray(f)) return null;
 
@@ -471,21 +770,24 @@ function decodeFrame(
   }
 
   const extra = refIndex(f[6], xdictLength);
-  if (extra !== null) {
+  const set = refIndex(f[7], setsLength);
+  if (extra !== null || set !== null) {
     if (out[5] === undefined) out[5] = 0;
     out[6] = extra;
   }
+  if (set !== null) out[7] = set;
 
   return out;
 }
 
 /** Every field is rebuilt rather than cast: this is the only boundary between a
- *  shared file and code that indexes arrays and spreads values into canvas ops. */
+ *  shared file and code that indexes arrays and spreads values into ops. */
 export function decode(value: unknown): DecodedRecording | null {
   if (typeof value !== 'object' || value === null) return null;
 
   const rec = value as Partial<Recording>;
-  if (rec.v !== RECORDING_VERSION) return null;
+  const version: unknown = rec.v;
+  if (version !== 2 && version !== RECORDING_VERSION) return null;
   if (!Array.isArray(rec.frames)) return null;
   if (!Array.isArray(rec.dict) || !Array.isArray(rec.keys)) return null;
 
@@ -498,13 +800,22 @@ export function decode(value: unknown): DecodedRecording | null {
   const dict = rec.dict.map((ops) => (Array.isArray(ops) ? ops : []));
   const xdict = Array.isArray(rec.xdict)
     ? rec.xdict.map((x) =>
-        typeof x === 'object' && x !== null && !Array.isArray(x) ? x : {},
+        typeof x === 'object' && x !== null && !Array.isArray(x)
+          ? unknownFields(x)
+          : {},
       )
     : [{}];
+  const sets = Array.isArray(rec.sets)
+    ? rec.sets.map((set) =>
+        Array.isArray(set)
+          ? set.filter((i) => refIndex(i, keys.length) !== null)
+          : [],
+      )
+    : [];
 
-  // Keyframes index frames by position: one rejected frame shifts every index after it.
+  // Keyframes index frames by position: a dropped frame shifts every later one.
   const decodedFrames = rec.frames.map((f) =>
-    decodeFrame(f, keys.length, dict.length, xdict.length),
+    decodeFrame(f, keys.length, dict.length, xdict.length, sets.length),
   );
   const droppedFrame = decodedFrames.some((f) => f === null);
   const keptFrames = decodedFrames.filter((f): f is Frame => f !== null);
@@ -513,7 +824,7 @@ export function decode(value: unknown): DecodedRecording | null {
   const wasOrdered = keptFrames.every(
     (f, i) => i === 0 || keptFrames[i - 1][0] <= f[0],
   );
-  // lastFrameAtOrBefore binary-searches this, so order is a correctness requirement.
+  // lastFrameAtOrBefore binary-searches this, so its order is load-bearing.
   const frames = wasOrdered
     ? keptFrames
     : [...keptFrames].sort((a, b) => a[0] - b[0]);
@@ -529,9 +840,14 @@ export function decode(value: unknown): DecodedRecording | null {
             typeof s[1] === 'object' &&
             s[1] !== null,
         )
-        // Clamped like frames: recordedAnchor reads these to align against a live run.
-        .map((s): StatusSample => [Math.min(s[0], MAX_DURATION_MS), s[1]])
-        // Generous: sampled at 1 Hz, so the markers' cap of 500 would stop at 8m20s.
+        // Clamped like frames: recordedAnchor lines up a live run on these.
+        .map(
+          (s): StatusSample => [
+            Math.min(s[0], MAX_DURATION_MS),
+            decodeStatus(s[1]),
+          ],
+        )
+        // Generous: at 1 Hz, the markers' cap of 500 would stop at 8m20s.
         .slice(0, MAX_STATUS_SAMPLES)
     : [];
 
@@ -556,8 +872,8 @@ export function decode(value: unknown): DecodedRecording | null {
         .slice(0, MAX_TIMELINE_ENTRIES)
     : [];
 
-  // The stored duration is a hint; trust the tracks, which the transport bar and
-  // the end-of-playback check key off. Re-clamped, or the ruler loop hangs.
+  // The stored duration is a hint; trust the tracks, which the transport bar
+  // and end-of-playback check key off. Re-clamped, or the ruler loop hangs.
   let end = meta.durationMs;
   if (frames.length > 0) end = Math.max(end, frames[frames.length - 1][0]);
   if (status.length > 0) end = Math.max(end, status[status.length - 1][0]);
@@ -571,8 +887,34 @@ export function decode(value: unknown): DecodedRecording | null {
     keys,
     dict,
     xdict,
+    sets,
     frames,
-    index: (Array.isArray(rec.index) ? rec.index : [])
+    // Once a frame is dropped or moved every kf.f names the wrong frame, so the
+    // index is rebuilt rather than discarded, which would make every seek O(n).
+    index:
+      droppedFrame || !wasOrdered
+        ? buildIndex(keys, sets, frames)
+        : decodeIndex(
+            rec.index,
+            frames.length,
+            dict.length,
+            xdict.length,
+            sets,
+          ),
+    status,
+    markers,
+  };
+}
+
+function decodeIndex(
+  raw: unknown,
+  frameCount: number,
+  dictLength: number,
+  xdictLength: number,
+  sets: number[][],
+): Keyframe[] {
+  return (
+    (Array.isArray(raw) ? (raw as Keyframe[]) : [])
       .filter(
         (kf): kf is Keyframe =>
           typeof kf === 'object' &&
@@ -585,10 +927,13 @@ export function decode(value: unknown): DecodedRecording | null {
           Array.isArray(kf.log) &&
           // foldTo walks from kf.f with no lower bound, so a negative index
           // reaches applyFrame as undefined and throws from the scrub dispatch.
-          refIndex(kf.f, frames.length) !== null &&
-          refIndex(kf.o, dict.length) !== null &&
-          refIndex(kf.fd, dict.length) !== null &&
-          refIndex(kf.x, xdict.length) !== null,
+          refIndex(kf.f, frameCount) !== null &&
+          refIndex(kf.o, dictLength) !== null &&
+          refIndex(kf.fd, dictLength) !== null &&
+          refIndex(kf.x, xdictLength) !== null &&
+          (sets.length === 0 || refIndex(kf.k, sets.length) !== null) &&
+          (kf.lo === undefined || refIndex(kf.lo, dictLength) !== null) &&
+          (kf.lf === undefined || refIndex(kf.lf, dictLength) !== null),
       )
       .map((kf) => ({
         ...kf,
@@ -599,16 +944,54 @@ export function decode(value: unknown): DecodedRecording | null {
         }, {}),
         log: kf.log.filter((l): l is string => typeof l === 'string'),
       }))
-      // keyframeFor binary-searches this, so order is a correctness requirement.
+      // keyframeFor binary-searches this, so its order is load-bearing.
       .sort((a, b) => a.f - b.f)
-      // See droppedFrame and wasOrdered: once positions move, every kf.f is a lie.
-      .filter(() => !droppedFrame && wasOrdered),
-    status,
-    markers,
+  );
+}
+
+/** The keyframes the encoder would have written for `frames`. */
+function buildIndex(
+  keys: string[],
+  sets: number[][],
+  frames: Frame[],
+): Keyframe[] {
+  const state = emptyFold(sets);
+  const index: Keyframe[] = [];
+  frames.forEach((f, i) => {
+    applyFrame(keys, state, f);
+    if ((i + 1) % KEYFRAME_INTERVAL !== 0) return;
+    index.push({
+      f: i,
+      t: f[0],
+      data: { ...state.data },
+      log: [...state.log],
+      o: state.o,
+      fd: state.fd,
+      x: state.x,
+      ...(state.k === null ? {} : { k: state.k }),
+      lo: state.lo,
+      lf: state.lf,
+    });
+  });
+  return index;
+}
+
+function emptyFold(sets: number[][]): FoldedState {
+  return {
+    data: {},
+    log: [],
+    logFresh: false,
+    o: 0,
+    fd: 0,
+    x: 0,
+    k: sets.length > 0 ? 0 : null,
+    lo: 0,
+    lf: 0,
+    frameIdx: -1,
   };
 }
 
-function applyFrame(rec: DecodedRecording, state: FoldedState, f: Frame) {
+function applyFrame(keys: string[], state: FoldedState, f: Frame) {
   if ((frameFlags(f) & FLAG_CLEAR) !== 0) {
     // FieldView's reduce is sticky and ignores empty batches, so a clear resets
     // telemetry text but leaves the last drawn overlay on the canvas.
@@ -621,7 +1004,7 @@ function applyFrame(rec: DecodedRecording, state: FoldedState, f: Frame) {
   const delta = f[1];
   if (delta) {
     for (const idx of Object.keys(delta)) {
-      const key = rec.keys[Number(idx)];
+      const key = keys[Number(idx)];
       if (key === undefined) continue;
       state.data[key] = delta[idx];
     }
@@ -633,9 +1016,16 @@ function applyFrame(rec: DecodedRecording, state: FoldedState, f: Frame) {
 
   if (f[3] !== null && f[3] !== undefined) state.o = f[3];
   if (f[4] !== null && f[4] !== undefined) state.fd = f[4];
+  if (state.o !== 0) {
+    state.lo = state.o;
+    state.lf = state.fd;
+  }
 
   const x = frameExtraRef(f);
   if (x !== null) state.x = x;
+
+  const k = frameKeySetRef(f);
+  if (k !== null && state.k !== null) state.k = k;
 }
 
 /** Index of the last frame with t <= tMs, or -1. */
@@ -680,15 +1070,7 @@ function keyframeFor(rec: DecodedRecording, target: number): Keyframe | null {
  *  KEYFRAME_INTERVAL frames however long the recording is. */
 export function foldTo(rec: DecodedRecording, tMs: number): FoldedState {
   const target = lastFrameAtOrBefore(rec.frames, tMs);
-  const state: FoldedState = {
-    data: {},
-    log: [],
-    logFresh: false,
-    o: 0,
-    fd: 0,
-    x: 0,
-    frameIdx: target,
-  };
+  const state: FoldedState = { ...emptyFold(rec.sets), frameIdx: target };
 
   if (target < 0) return state;
 
@@ -701,13 +1083,16 @@ export function foldTo(rec: DecodedRecording, tMs: number): FoldedState {
     state.o = kf.o;
     state.fd = kf.fd;
     state.x = kf.x;
+    if (state.k !== null && kf.k !== undefined) state.k = kf.k;
+    state.lo = kf.lo ?? kf.o;
+    state.lf = kf.lf ?? kf.fd;
     // kf.f, not kf.f + 1: a keyframe does not record whether its own frame
     // carried a log. Re-applying is idempotent, every delta being a set.
     start = kf.f;
   }
 
   for (let i = start; i <= target; i++) {
-    applyFrame(rec, state, rec.frames[i]);
+    applyFrame(rec.keys, state, rec.frames[i]);
   }
 
   return state;
@@ -719,19 +1104,56 @@ export function frameToPacket(
   timestamp: number,
   /** `timestamp` cannot answer this: it is browser-epoch and scaled by playback
    *  speed, so a 4x replay would report the run as a quarter of its length. */
-  recordedMs?: number,
+  recordedMs: number,
 ): TelemetryItem {
   const extra = rec.xdict[state.x] ?? {};
 
   return {
     ...extra,
     timestamp,
-    ...(recordedMs === undefined ? {} : { recordedMs }),
-    data: { ...state.data },
+    recordedMs,
+    data: carriedData(rec, state),
     log: state.logFresh ? [...state.log] : [],
     field: { ops: rec.dict[state.fd] ?? [] },
     fieldOverlay: { ops: rec.dict[state.o] ?? [] },
   } as TelemetryItem;
+}
+
+/** Everything on screen at `state`, as one packet for a seek to end on. */
+export function seedPacket(
+  rec: DecodedRecording,
+  state: FoldedState,
+  timestamp: number,
+  recordedMs: number,
+): TelemetryItem {
+  return {
+    ...(rec.xdict[state.x] ?? {}),
+    timestamp,
+    recordedMs,
+    seed: true,
+    data: { ...state.data },
+    log: [...state.log],
+    field: { ops: rec.dict[state.lf] ?? [] },
+    fieldOverlay: { ops: rec.dict[state.lo] ?? [] },
+  };
+}
+
+/** Only the keys the frame's packet carried: Graph and Logging treat every
+ *  packet as a sample row. A recording without key sets gets the whole fold. */
+function carriedData(
+  rec: DecodedRecording,
+  state: FoldedState,
+): Record<string, string> {
+  if (state.k === null) return { ...state.data };
+
+  const data: Record<string, string> = {};
+  for (const i of rec.sets[state.k] ?? []) {
+    const key = rec.keys[i];
+    if (key !== undefined && state.data[key] !== undefined) {
+      data[key] = state.data[key];
+    }
+  }
+  return data;
 }
 
 export function isClearFrame(f: Frame): boolean {
@@ -744,7 +1166,7 @@ export type ReplaySegment =
   | { kind: 'clear' }
   | { kind: 'batch'; packets: TelemetryItem[] };
 
-/** Walks `state` forward across an INCLUSIVE range, in as few segments as possible. */
+/** Walks `state` over an INCLUSIVE range, in as few segments as possible. */
 export function foldRange(
   rec: DecodedRecording,
   state: FoldedState,
@@ -763,7 +1185,7 @@ export function foldRange(
 
   for (let i = fromIdx; i <= toIdx; i++) {
     const f = rec.frames[i];
-    applyFrame(rec, state, f);
+    applyFrame(rec.keys, state, f);
     state.frameIdx = i;
 
     if (isClearFrame(f)) {
@@ -852,6 +1274,7 @@ export function upgradeV1(
     keys: [],
     dict: [...ops.values],
     xdict: [{}],
+    sets: [],
     frames,
     index,
     status: [],
@@ -872,8 +1295,8 @@ function safeImagePath(path: unknown): string | null {
     const url = new URL(normalized, window.location.href);
     if (url.origin !== window.location.origin) return null;
 
-    // Origin alone is not enough: `/.//attacker.example/x.gif` parses with THIS origin,
-    // but its pathname `//attacker.example/x.gif` is protocol-relative to image.src.
+    // Origin is not enough: `/.//attacker.example/x.gif` has THIS origin, yet
+    // its path `//attacker.example/x.gif` is protocol-relative to image.src.
     const pathname = '/' + url.pathname.replace(/^\/+/, '');
     return pathname + url.search;
   } catch {
@@ -882,7 +1305,7 @@ function safeImagePath(path: unknown): string | null {
 }
 
 /** Checking `type` alone is not enough: `{type: 'polyline'}` reaches
- *  `fineMoveTo(xPoints[0], ...)` on undefined, and there is no error boundary. */
+ *  `fineMoveTo(xPoints[0], ...)` on undefined, with no error boundary. */
 const OP_NUMBERS: { [type: string]: string[] } = {
   scale: ['scaleX', 'scaleY'],
   rotation: ['rotation'],
@@ -909,8 +1332,6 @@ const OP_NUMBERS: { [type: string]: string[] } = {
     'x',
     'y',
     'theta',
-    'X',
-    'Y',
     'width',
     'height',
     'pivotX',
@@ -919,6 +1340,11 @@ const OP_NUMBERS: { [type: string]: string[] } = {
     'numTicksY',
   ],
   alpha: ['alpha'],
+};
+
+/** Grid.java never sends these, but Field.js translates by them if present. */
+const OP_OPTIONAL_NUMBERS: { [type: string]: string[] } = {
+  grid: ['X', 'Y'],
 };
 
 const OP_STRINGS: { [type: string]: string[] } = {
@@ -930,6 +1356,7 @@ const OP_STRINGS: { [type: string]: string[] } = {
 /** Each becomes one absolutely positioned DOM node and an imported file may
  *  declare a million. Past a few hundred they overlap into a solid bar. */
 const MAX_TIMELINE_ENTRIES = 500;
+const OPMODE_MARKER_RESERVE = 100;
 
 /** One per second of recording, and MAX_DURATION_MS is a day. */
 const MAX_STATUS_SAMPLES = 100000;
@@ -940,13 +1367,32 @@ const MAX_POINTS = 100000;
 /** Laid out glyph by glyph on every repaint. Longer than any real label. */
 const MAX_TEXT_LENGTH = 10000;
 
-/** One line drawn per tick, so this bounds a loop; a real field grid is single digits. */
+/** Bounds a loop that draws a line per tick; real grids are single digits. */
 const MAX_TICKS = 1000;
+
+/** Points one dict entry may cost a Field render, each allocating a matrix.
+ *  A real overlay draws a few thousand at most. */
+const MAX_DRAW_WORK = 50000;
+
+/** Field.js requests each distinct image from the robot and keeps it. */
+const MAX_IMAGE_PATHS = 16;
+
+/** Field.js samples every spline at this many points. */
+const SPLINE_WORK = 250;
 
 function hasFiniteNumbers(op: object, fields: string[]): boolean {
   const rec = op as { [k: string]: unknown };
   return fields.every(
     (f) => typeof rec[f] === 'number' && Number.isFinite(rec[f] as number),
+  );
+}
+
+function optionalNumbersFinite(op: object, fields: string[]): boolean {
+  const rec = op as { [k: string]: unknown };
+  return fields.every(
+    (f) =>
+      rec[f] === undefined ||
+      (typeof rec[f] === 'number' && Number.isFinite(rec[f] as number)),
   );
 }
 
@@ -971,10 +1417,33 @@ function finitePointArray(v: unknown): number[] | null {
   return v as number[];
 }
 
-function sanitizeOps(ops: DrawOp[]): DrawOp[] {
+function drawWork(op: DrawOp): number {
+  switch (op.type) {
+    case 'polygon':
+    case 'polyline':
+      return op.xPoints.length;
+    case 'spline':
+      return SPLINE_WORK;
+    case 'grid':
+      return op.numTicksX + op.numTicksY;
+    case 'text':
+      return op.text.length;
+    default:
+      return 1;
+  }
+}
+
+function sanitizeOps(ops: DrawOp[], images: Set<string>): DrawOp[] {
   if (!Array.isArray(ops)) return [];
 
   const out: DrawOp[] = [];
+  let work = 0;
+  const push = (op: DrawOp) => {
+    const cost = drawWork(op);
+    if (work + cost > MAX_DRAW_WORK) return;
+    work += cost;
+    out.push(op);
+  };
   for (const op of ops) {
     if (typeof op !== 'object' || op === null) continue;
 
@@ -982,10 +1451,16 @@ function sanitizeOps(ops: DrawOp[]): DrawOp[] {
     if (!KNOWN_OP_TYPES.has(type)) continue;
 
     if (OP_NUMBERS[type] && !hasFiniteNumbers(op, OP_NUMBERS[type])) continue;
+    if (
+      OP_OPTIONAL_NUMBERS[type] &&
+      !optionalNumbersFinite(op, OP_OPTIONAL_NUMBERS[type])
+    ) {
+      continue;
+    }
     if (OP_STRINGS[type] && !hasStrings(op, OP_STRINGS[type])) continue;
     if (type === 'grid' && !withinTickBudget(op)) continue;
-    // ctx.arc is specified to THROW on a negative radius, not to ignore it, and it
-    // throws inside FieldView's update, which React turns into a blank dashboard.
+    // ctx.arc is specified to THROW on a negative radius, not ignore it, and it
+    // throws in FieldView's update, which React turns into a blank dashboard.
     if (type === 'circle' && !((op as { radius: number }).radius >= 0))
       continue;
 
@@ -998,20 +1473,24 @@ function sanitizeOps(ops: DrawOp[]): DrawOp[] {
       );
       if (!xPoints || !yPoints || xPoints.length !== yPoints.length) continue;
 
-      out.push({ ...(op as object), xPoints, yPoints } as DrawOp);
+      push({ ...(op as object), xPoints, yPoints } as DrawOp);
       continue;
     }
 
     if ((op as { type: string }).type === 'image') {
       const path = safeImagePath((op as unknown as { path?: unknown }).path);
       if (path === null) continue;
-      out.push({ ...(op as object), path } as DrawOp);
+      if (!images.has(path)) {
+        if (images.size >= MAX_IMAGE_PATHS) continue;
+        images.add(path);
+      }
+      push({ ...(op as object), path } as DrawOp);
       continue;
     }
 
     if ((op as { type: string }).type === 'text') {
       const text = (op as unknown as { text?: unknown }).text;
-      out.push({
+      push({
         ...(op as object),
         // Laid out glyph by glyph on every repaint, so a huge string is a hang.
         text: typeof text === 'string' ? text.slice(0, MAX_TEXT_LENGTH) : '',
@@ -1019,15 +1498,16 @@ function sanitizeOps(ops: DrawOp[]): DrawOp[] {
       continue;
     }
 
-    out.push(op);
+    push(op);
   }
 
   return out;
 }
 
-/** Deliberately does NOT HTML-escape telemetry text, which React escapes at render.
- *  What needs hardening is what it does not cover: throwing ops and image paths. */
+/** Does NOT HTML-escape telemetry text, deliberately: React escapes at render.
+ *  What needs hardening is what it misses: throwing ops and image paths. */
 export function sanitizeImported(rec: Recording): Recording {
+  const images = new Set<string>();
   return {
     ...rec,
     meta: {
@@ -1036,7 +1516,7 @@ export function sanitizeImported(rec: Recording): Recording {
       opMode: String(rec.meta?.opMode ?? '').slice(0, 200),
       origin: 'imported',
     },
-    dict: rec.dict.map(sanitizeOps),
+    dict: rec.dict.map((ops) => sanitizeOps(ops, images)),
     markers: rec.markers.map((m) => ({
       ...m,
       text: String(m.text ?? '').slice(0, 500),

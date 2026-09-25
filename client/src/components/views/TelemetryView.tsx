@@ -12,8 +12,8 @@ import { RootState } from '@/store/reducers';
 
 type TelemetryViewProps = BaseViewProps & BaseViewHeadingProps;
 
-/** `fromReplay` travels with the values: on exit `state.playback.mode` flips a render
- *  before the fold drops the recorded strings, which must not take the HTML branch. */
+/** `fromReplay` travels with the values: set by any replayed packet folded in,
+ *  so recorded strings never take the HTML branch whatever the mode is. */
 type Fold = {
   fromReplay: boolean;
   data: { [key: string]: string };
@@ -32,15 +32,14 @@ const TelemetryView = ({
   const isReplay = useSelector(
     (state: RootState) => state.playback.mode === 'playback',
   );
-  // Both tokens reset this fold; Logging and the Graph accumulate history and so
-  // honour only foldToken: a replayed clear must not wipe what a live run would keep.
+  // Both tokens reset this fold. Logging and the Graph keep history, so they
+  // honour only foldToken: a replayed clear must not wipe what live runs keep.
   const foldToken = useSelector((state: RootState) => state.playback.foldToken);
   const clearToken = useSelector(
     (state: RootState) => state.playback.clearToken,
   );
 
-  // React 18 batches the engine's empty batch with the next, so packets.length is
-  // not a durable signal here.
+  // The tokens, not packets.length: a seek sends no empty batch.
   const seenToken = useRef(`${foldToken}:${clearToken}`);
   if (seenToken.current !== `${foldToken}:${clearToken}`) {
     seenToken.current = `${foldToken}:${clearToken}`;
@@ -56,23 +55,26 @@ const TelemetryView = ({
     }
 
     setFold((prev) => {
-      const log = packets.reduce(
+      // A seek ends on a seed holding everything on screen at that moment.
+      const seedAt = packets.map((p) => p.seed).lastIndexOf(true);
+      const base =
+        seedAt < 0
+          ? prev
+          : { ...prev, data: packets[seedAt].data, log: packets[seedAt].log };
+      const rest = packets.slice(seedAt + 1);
+
+      const log = rest.reduce(
         (acc, { log: newLog }) => (newLog.length === 0 ? acc : newLog),
-        prev.log,
+        base.log,
       );
 
-      const data = packets.reduce(
-        (acc, { data: newData }) =>
-          Object.keys(newData).reduce(
-            (acc, k) => ({ ...acc, [k]: newData[k] }),
-            acc,
-          ),
-        prev.data,
-      );
+      const data = { ...base.data };
+      for (const p of rest) Object.assign(data, p.data);
 
-      return { fromReplay: isReplay, data, log };
+      const replayed = packets.some((p) => p.recordedMs !== undefined);
+      return { fromReplay: base.fromReplay || replayed, data, log };
     });
-  }, [packets, isReplay]);
+  }, [packets]);
 
   // Recordings are shareable files, so replayed text must never reach
   // dangerouslySetInnerHTML.

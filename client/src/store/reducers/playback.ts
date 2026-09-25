@@ -6,10 +6,17 @@ import {
   PLAYBACK_RECORDED_CLEAR,
   PLAYBACK_RESET_FOLD,
   PLAYBACK_EXIT,
+  PLAYBACK_LIBRARY_CHANGED,
+  PLAYBACK_LIBRARY_LISTED,
   PLAYBACK_LOADED,
+  PLAYBACK_OVERLAYS,
   PLAYBACK_PAUSE,
   PLAYBACK_PLAY,
+  PLAYBACK_RENAMED,
   PLAYBACK_SEEK,
+  PLAYBACK_SELECT,
+  PLAYBACK_SET_AUTO_SELECT,
+  PLAYBACK_SET_COMPARE_ON_START,
   PLAYBACK_SET_LOOP,
   PLAYBACK_SET_MODE,
   PLAYBACK_SET_OPACITY,
@@ -20,12 +27,14 @@ import {
 } from '@/store/types/playback';
 
 export const RECORDER_ENABLED_KEY = 'recorderEnabled';
+export const AUTO_SELECT_KEY = 'recorderAutoSelect';
+export const COMPARE_ON_START_KEY = 'recorderCompareOnStart';
 
-function initialRecorderEnabled(): boolean {
+function storedFlag(key: string): boolean {
   try {
-    return window.localStorage.getItem(RECORDER_ENABLED_KEY) !== 'false';
+    return window.localStorage.getItem(key) === 'true';
   } catch {
-    return true;
+    return false;
   }
 }
 
@@ -36,6 +45,11 @@ const initialState: PlaybackState = {
   clearToken: 0,
   recordingId: null,
   meta: null,
+  selectedIds: [],
+  autoSelect: storedFlag(AUTO_SELECT_KEY),
+  libraryVersion: 0,
+  compareOnStart: storedFlag(COMPARE_ON_START_KEY),
+  overlays: [],
   cursorMs: 0,
   durationMs: 0,
   speed: 1,
@@ -45,13 +59,15 @@ const initialState: PlaybackState = {
   statusTimeline: [],
   density: [],
   recorder: {
-    enabled: initialRecorderEnabled(),
+    enabled: storedFlag(RECORDER_ENABLED_KEY),
     active: false,
     frames: 0,
     bytes: 0,
     elapsedMs: 0,
     durationMs: 0,
     id: null,
+    savedCount: 0,
+    elsewhere: false,
   },
   align: {
     recAnchorMs: null,
@@ -76,6 +92,10 @@ function releaseAlign(state: PlaybackState): PlaybackState['align'] {
   return { ...state.align, status: 'manual' };
 }
 
+function sameIds(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((id, i) => id === b[i]);
+}
+
 const playbackReducer = (
   state = initialState,
   action: PlaybackAction,
@@ -86,7 +106,7 @@ const playbackReducer = (
         ...state,
         // Loading while in ghost mode keeps ghost: the user asked to compare a
         // recording against the live robot, not to replace it.
-        mode: state.mode === 'ghost' ? 'ghost' : 'playback',
+        mode: action.mode ?? (state.mode === 'ghost' ? 'ghost' : 'playback'),
         isPlaying: false,
         recordingId: action.meta.id,
         meta: action.meta,
@@ -107,9 +127,8 @@ const playbackReducer = (
 
     case PLAYBACK_SEEK: {
       const t = Math.max(0, Math.min(action.t, state.durationMs));
-      // The fold token is not bumped here. The engine clears the sink as part of
-      // seeking (seekTo -> emitClear -> PLAYBACK_RESET_FOLD), which keeps the
-      // token tied to an actual clear rather than to an intent, so ghost-mode
+      // The fold token is not bumped here: seekTo dispatches
+      // PLAYBACK_RESET_FOLD with its batch in playback mode only, so ghost-mode
       // seeks leave live data alone.
       return { ...state, cursorMs: t, align: releaseAlign(state) };
     }
@@ -138,6 +157,7 @@ const playbackReducer = (
         align: initialState.align,
         recordingId: null,
         meta: null,
+        overlays: [],
         cursorMs: 0,
         durationMs: 0,
         markers: [],
@@ -151,6 +171,49 @@ const playbackReducer = (
 
     case PLAYBACK_RECORDED_CLEAR:
       return { ...state, clearToken: state.clearToken + 1 };
+
+    case PLAYBACK_SELECT:
+      if (sameIds(action.ids, state.selectedIds)) return state;
+      return { ...state, selectedIds: action.ids };
+
+    case PLAYBACK_LIBRARY_LISTED: {
+      const { active, id: recording } = state.recorder;
+      const selectedIds = state.autoSelect
+        ? action.ids.filter((id) => !active || id !== recording)
+        : action.ids.filter((id) => state.selectedIds.includes(id));
+      if (sameIds(selectedIds, state.selectedIds)) return state;
+      return { ...state, selectedIds };
+    }
+
+    case PLAYBACK_LIBRARY_CHANGED:
+      return { ...state, libraryVersion: state.libraryVersion + 1 };
+
+    case PLAYBACK_SET_AUTO_SELECT:
+      return { ...state, autoSelect: action.enabled };
+
+    case PLAYBACK_SET_COMPARE_ON_START:
+      return { ...state, compareOnStart: action.enabled };
+
+    case PLAYBACK_OVERLAYS:
+      return {
+        ...state,
+        overlays: action.overlays,
+        durationMs: action.durationMs,
+        density: action.density,
+        cursorMs: Math.min(state.cursorMs, action.durationMs),
+      };
+
+    case PLAYBACK_RENAMED:
+      return {
+        ...state,
+        meta:
+          state.meta?.id === action.id
+            ? { ...state.meta, name: action.name }
+            : state.meta,
+        overlays: state.overlays.map((o) =>
+          o.id === action.id ? { ...o, name: action.name } : o,
+        ),
+      };
 
     case PLAYBACK_SET_ALIGN:
       return { ...state, align: { ...state.align, ...action.align } };

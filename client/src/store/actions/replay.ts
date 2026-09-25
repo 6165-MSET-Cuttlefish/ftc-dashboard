@@ -5,7 +5,7 @@ import {
   SET_REPLAY_OVERLAY,
 } from '@/store/types/replay';
 
-/** `data` is what lets the Graph plot recorded series; the overlay is not field-only. */
+/** `data` lets the Graph plot recorded series, so this is not field-only. */
 export const setReplayOverlay = (
   overlay: DrawOp[],
   data?: { [key: string]: string },

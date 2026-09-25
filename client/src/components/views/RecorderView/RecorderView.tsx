@@ -9,11 +9,17 @@ import BaseView, {
   BaseViewProps,
 } from '@/components/views/BaseView';
 import {
+  compareSelected,
   exitPlayback,
+  libraryListed,
   loadRecording,
   pausePlayback,
   playPlayback,
+  recordingRenamed,
   seekPlayback,
+  selectRecordings,
+  setAutoSelect,
+  setCompareOnStart,
   setGhostOpacity,
   setPlaybackError,
   setPlaybackLoop,
@@ -24,15 +30,17 @@ import {
   stopRecording,
 } from '@/store/actions/playback';
 import {
+  describeStorageError,
   exportFile,
   importFile,
-  isIndexedDbAvailable,
   list,
   RecordingListEntry,
   remove,
+  storageWarning,
   updateMeta,
   usage,
 } from '@/store/recording/recordingStore';
+import { GHOST_COLOURS } from '@/store/recording/ghosts';
 import { formatBytes, formatClock } from '@/store/recording/timeFormat';
 import { RootState } from '@/store/reducers';
 
@@ -42,9 +50,7 @@ import { SMALL_BUTTON, SMALL_BUTTON_FIXED } from './controlStyles';
 
 type RecorderViewProps = BaseViewProps & BaseViewHeadingProps;
 
-/** The engine's `ghost` and `playback` modes. Its third, `live`, is not a
- *  choice here: it is having no recording open, which Close gets you back to. */
-/** A hoverable dot, for the sentence that explains a label rather than being one. */
+/** A hoverable dot, for a sentence explaining a label rather than being one. */
 const HelpMark = () => (
   <span
     className={
@@ -69,10 +75,12 @@ function alignState(playback: RootState['playback']): {
   detail: string;
 } {
   if (playback.durationMs > 0 && playback.cursorMs >= playback.durationMs) {
+    const several = playback.overlays.length > 0;
     return {
-      label: 'Recording has run out',
-      detail:
-        'The live robot is still going; the recorded path stays on screen.',
+      label: several ? 'Recordings have run out' : 'Recording has run out',
+      detail: `The live robot is still going; the recorded ${
+        several ? 'paths stay' : 'path stays'
+      } on screen.`,
     };
   }
 
@@ -83,11 +91,19 @@ function alignState(playback: RootState['playback']): {
         detail:
           'You moved the playhead. Press Play to line it up with the live run again.',
       };
+    case 'outrun':
+      return {
+        label: 'Not following the robot',
+        detail:
+          'The live run has gone past the end of this recording, so Play shows it from the start.',
+      };
     case 'unaligned':
       return {
         label: 'Cannot line up automatically',
         detail:
-          'You joined after this run started, so there is no shared start to key on.',
+          playback.align.source === 'joined'
+            ? 'This recording began after its run started, so it has no start to key on.'
+            : 'You joined after this run started, so there is no shared start to key on.',
       };
     case 'waiting':
       return {
@@ -117,6 +133,35 @@ function alignState(playback: RootState['playback']): {
   };
 }
 
+/** How many go, and how many of those nothing else would ever delete. */
+function deleteAllQuestion(count: number, kept: number, recording: boolean) {
+  let question: string;
+  if (count === 1) {
+    question =
+      kept === 1
+        ? 'Delete the only recording? It was kept for good, so it would ' +
+          'never be deleted automatically.'
+        : 'Delete the only recording?';
+  } else if (kept === 0) {
+    question = `Delete all ${count} recordings?`;
+  } else if (kept === count) {
+    question =
+      `Delete all ${count} recordings? Every one was kept for good, so ` +
+      'none would ever be deleted automatically.';
+  } else {
+    question =
+      `Delete all ${count} recordings, including the ${kept} kept for ` +
+      'good, which would never be deleted automatically?';
+  }
+
+  return (
+    `${question} This cannot be undone.` +
+    (recording ? ' The run being recorded now is not deleted.' : '')
+  );
+}
+
+/** The engine's `ghost` and `playback` modes. Its third, `live`, is not a
+ *  choice here: it is having no recording open, which Close returns you to. */
 const VIEW_OPTIONS = [
   {
     mode: 'playback' as const,
@@ -147,33 +192,51 @@ const RecorderView = ({
    * pointer crosses between children, so a flag flickers off mid-drag.
    */
   const [dragDepth, setDragDepth] = useState(0);
-  const [storage, setStorage] = useState({ usage: 0, quota: 0 });
+  const [confirmingDeleteAll, setConfirmingDeleteAll] = useState(false);
+  const [storage, setStorage] = useState<{
+    usage: number;
+    quota: number;
+  } | null>(null);
 
   const refresh = useCallback(async () => {
-    setEntries(await list());
+    try {
+      const listed = await list();
+      setEntries(listed);
+      dispatch(libraryListed(listed.map((e) => e.meta)));
+    } catch (err) {
+      dispatch(
+        setPlaybackError(
+          `Could not read saved recordings: ${describeStorageError(err)}`,
+        ),
+      );
+    }
     setStorage(await usage());
-  }, []);
+  }, [dispatch]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
-  // A finished recording only appears in the library once it has been written,
-  // so re-list on the active-to-idle edge.
-  const wasRecording = useRef(false);
+  // A finished recording only appears in the library once it has been written.
   useEffect(() => {
-    const justStopped = wasRecording.current && !playback.recorder.active;
-    wasRecording.current = playback.recorder.active;
+    if (playback.recorder.savedCount > 0) void refresh();
+  }, [playback.recorder.savedCount, refresh]);
 
-    if (!justStopped) return;
-
-    // The final flush is async, so give it a beat before re-listing.
-    const timeout = setTimeout(() => void refresh(), 500);
-    return () => clearTimeout(timeout);
-  }, [playback.recorder.active, refresh]);
+  useEffect(() => {
+    if (playback.libraryVersion > 0) void refresh();
+  }, [playback.libraryVersion, refresh]);
 
   const isOpen = playback.recordingId !== null;
   const isPlaybackMode = playback.mode === 'playback';
+  const recordingNowId = playback.recorder.active ? playback.recorder.id : null;
+  const comparable = playback.selectedIds.filter((id) => id !== recordingNowId);
+  const alsoSelected = comparable.filter((id) => id !== playback.recordingId);
+  const joinedSelected = alsoSelected.filter((id) =>
+    entries.some((e) => e.meta.id === id && e.meta.joined),
+  ).length;
+  const drawable = alsoSelected.length - joinedSelected;
+  const deletable = entries.filter((e) => e.meta.id !== recordingNowId);
+  const keptCount = deletable.filter((e) => e.meta.pinned).length;
 
   const handleSeek = useCallback(
     (t: number) => dispatch(seekPlayback(t)),
@@ -229,20 +292,29 @@ const RecorderView = ({
 
   const reportError = useCallback(
     (what: string) => (err: unknown) => {
-      dispatch(
-        setPlaybackError(
-          `${what}: ${err instanceof Error ? err.message : String(err)}`,
-        ),
-      );
+      dispatch(setPlaybackError(`${what}: ${describeStorageError(err)}`));
     },
     [dispatch],
   );
 
-  // Stable identities so RecordingLibrary's memo actually holds while the cursor
+  // Stable identities, so RecordingLibrary's memo holds while the cursor
   // ticks at 10 Hz.
   const handleSelect = useCallback(
     (id: string) => dispatch(loadRecording(id)),
     [dispatch],
+  );
+
+  const handleToggleSelected = useCallback(
+    (id: string) => {
+      const selected = new Set(playback.selectedIds);
+      if (!selected.delete(id)) selected.add(id);
+      dispatch(
+        selectRecordings(
+          entries.map((e) => e.meta.id).filter((x) => selected.has(x)),
+        ),
+      );
+    },
+    [dispatch, entries, playback.selectedIds],
   );
 
   const handleDelete = useCallback(
@@ -256,25 +328,45 @@ const RecorderView = ({
     [dispatch, playback.recordingId, refresh, reportError],
   );
 
+  const handleDeleteAll = () => {
+    setConfirmingDeleteAll(false);
+    const ids = deletable.map((e) => e.meta.id);
+    void (async () => {
+      if (playback.recordingId !== null && ids.includes(playback.recordingId)) {
+        dispatch(exitPlayback());
+      }
+      const failed = (await Promise.allSettled(ids.map(remove))).filter(
+        (r): r is PromiseRejectedResult => r.status === 'rejected',
+      );
+      await refresh();
+      if (failed.length > 0) {
+        reportError(`Could not delete ${failed.length} of the recordings`)(
+          failed[0].reason,
+        );
+      }
+    })();
+  };
+
   const handleRename = useCallback(
     (id: string, name: string) => {
       const trimmed = name.trim();
       if (trimmed === '') return;
 
       void (async () => {
-        // Renaming is the signal that a run is worth keeping, so it also pins it.
+        // Renaming signals that a run is worth keeping, so it also pins it.
         await updateMeta(id, { name: trimmed, pinned: true });
+        dispatch(recordingRenamed(id, trimmed));
         await refresh();
       })().catch(reportError('Could not rename that recording'));
     },
-    [refresh, reportError],
+    [dispatch, refresh, reportError],
   );
 
   const handleExport = useCallback(
     (id: string) => {
       void exportFile(id)
-        .then(refresh)
-        .catch(reportError('Could not export that recording'));
+        .catch(reportError('Could not export that recording'))
+        .then(refresh);
     },
     [refresh, reportError],
   );
@@ -288,9 +380,7 @@ const RecorderView = ({
       } catch (err) {
         dispatch(
           setPlaybackError(
-            `Could not import ${file.name}: ${
-              err instanceof Error ? err.message : String(err)
-            }`,
+            `Could not import ${file.name}: ${describeStorageError(err)}`,
           ),
         );
       }
@@ -365,11 +455,8 @@ const RecorderView = ({
           </p>
         )}
 
-        {!isIndexedDbAvailable() && (
-          <p className="warning mb-2 text-sm">
-            This browser will not let the dashboard store recordings, so new
-            runs cannot be saved.
-          </p>
+        {storageWarning() && (
+          <p className="warning mb-2 text-sm">{storageWarning()}</p>
         )}
 
         {/* Everything about reviewing a recording lives in one panel that only
@@ -379,9 +466,7 @@ const RecorderView = ({
             <div className="mb-2 flex items-baseline justify-between gap-2">
               <h3 className="min-w-0 truncate text-sm font-medium">
                 <span className="text-gray-500 dark:text-slate-400">
-                  {/* Matches the word the header bar uses for the same state.
-                      Two names for one thing is most of what made this
-                      confusing. */}
+                  {/* The word the header bar uses for the same state. */}
                   {isPlaybackMode ? 'Reviewing' : 'Comparing'}{' '}
                 </span>
                 {playback.meta?.name}
@@ -406,9 +491,60 @@ const RecorderView = ({
               </p>
             )}
 
-            {/* Opening a recording used to stop capturing the match you were
-                in, without saying so. It no longer does, and saying so is half
-                the fix. */}
+            {playback.mode === 'ghost' && playback.overlays.length > 0 && (
+              <ul
+                className="mb-2 space-y-0.5 text-xs"
+                title="Each is lined up on its own op mode start. The Graph shows only the open one."
+              >
+                {[
+                  {
+                    id: playback.recordingId,
+                    name: playback.meta?.name,
+                    colour: GHOST_COLOURS[0],
+                  },
+                  ...playback.overlays,
+                ].map((g) => (
+                  <li key={g.id} className="flex min-w-0 items-center gap-1.5">
+                    <span
+                      className="h-2.5 w-2.5 shrink-0 rounded-sm"
+                      style={{ backgroundColor: g.colour }}
+                    />
+                    <span className="truncate">{g.name}</span>
+                    {g.id === playback.recordingId && (
+                      <span className="shrink-0 text-gray-500 dark:text-slate-400">
+                        open
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {playback.mode === 'ghost' && joinedSelected > 0 && (
+              <p className="mb-2 text-xs text-gray-500 dark:text-slate-400">
+                {joinedSelected === 1
+                  ? 'One selected recording is not drawn: it began after its run started, so it cannot be lined up.'
+                  : `${joinedSelected} selected recordings are not drawn: they began after their runs started, so they cannot be lined up.`}
+              </p>
+            )}
+            {playback.mode === 'ghost' &&
+              drawable > GHOST_COLOURS.length - 1 && (
+                <p className="mb-2 text-xs text-gray-500 dark:text-slate-400">
+                  At most {GHOST_COLOURS.length} are drawn at once: this one and
+                  the newest {GHOST_COLOURS.length - 1} selected.
+                </p>
+              )}
+            {isPlaybackMode && drawable > 0 && (
+              <p className="mb-2 text-xs text-gray-500 dark:text-slate-400">
+                {drawable === 1
+                  ? 'One other selected recording is'
+                  : `${Math.min(
+                      drawable,
+                      GHOST_COLOURS.length - 1,
+                    )} other selected recordings are`}{' '}
+                drawn too when you compare with live.
+              </p>
+            )}
+
             {playback.recorder.active && (
               <p className="mb-2 text-xs text-gray-500 dark:text-slate-400">
                 Live robot still being recorded
@@ -431,6 +567,7 @@ const RecorderView = ({
               onSetLoop={(l) => dispatch(setPlaybackLoop(l))}
               onStep={handleStep}
               followsLive={playback.mode === 'ghost'}
+              following={playback.align.status === 'aligned'}
             />
 
             <div className="mt-3 border-t border-gray-200 pt-2 dark:border-slate-600">
@@ -484,6 +621,15 @@ const RecorderView = ({
         <div className="mb-1 flex items-center justify-between">
           <h3 className="font-medium">Recordings</h3>
           <div className="flex items-center gap-2">
+            {!isOpen && comparable.length > 0 && (
+              <button
+                className={SMALL_BUTTON}
+                title="Draw the selected recordings over the live Field, each lined up on its op mode start"
+                onClick={() => dispatch(compareSelected())}
+              >
+                Compare {comparable.length} with live
+              </button>
+            )}
             <input
               type="file"
               accept=".json"
@@ -501,19 +647,62 @@ const RecorderView = ({
             >
               Import
             </button>
+            {deletable.length > 0 && (
+              <button
+                className={SMALL_BUTTON}
+                onClick={() => setConfirmingDeleteAll(true)}
+              >
+                Delete all
+              </button>
+            )}
           </div>
         </div>
+
+        {confirmingDeleteAll && deletable.length > 0 && (
+          <div
+            className="mb-2 rounded border border-red-500/60 bg-red-50 p-2 text-sm dark:bg-red-500/10"
+            role="alertdialog"
+            aria-label="Delete all recordings"
+          >
+            <p>
+              {deleteAllQuestion(
+                deletable.length,
+                keptCount,
+                recordingNowId !== null,
+              )}
+            </p>
+            <div className="mt-2 flex justify-end gap-2">
+              <button
+                className={SMALL_BUTTON}
+                autoFocus
+                onClick={() => setConfirmingDeleteAll(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className="rounded bg-red-600 px-2 py-0.5 text-xs font-medium text-white transition hover:bg-red-700"
+                onClick={handleDeleteAll}
+              >
+                Delete {deletable.length}
+              </button>
+            </div>
+          </div>
+        )}
 
         <RecordingLibrary
           entries={entries}
           openId={playback.recordingId}
+          selectedIds={playback.selectedIds}
+          recordingNowId={recordingNowId}
+          autoRecord={playback.recorder.enabled}
+          onToggleSelected={handleToggleSelected}
           onSelect={handleSelect}
           onRename={handleRename}
           onDelete={handleDelete}
           onExport={handleExport}
         />
 
-        {/* Capture settings are secondary: you set them once and forget them. */}
+        {/* Capture settings are secondary: set once and forgotten. */}
         <div className="mt-4 border-t border-gray-200 pt-2 dark:border-slate-600">
           <h3 className="mb-1 font-medium">Capture</h3>
           <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
@@ -543,26 +732,62 @@ const RecorderView = ({
             </button>
           </div>
 
+          {playback.recorder.enabled && playback.recorder.elsewhere && (
+            <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
+              Another dashboard tab is recording op modes.
+            </p>
+          )}
+
           {playback.recorder.active ? (
             <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
               {playback.recorder.frames.toLocaleString()} frames,{' '}
               {formatBytes(playback.recorder.bytes)} so far
             </p>
           ) : (
-            storage.quota > 0 && (
-              <p
-                className="mt-1 text-xs text-gray-500 dark:text-slate-400"
-                title={
-                  'Automatic recordings are deleted oldest first once there ' +
-                  'are more than 10. Renaming or downloading one keeps it for ' +
-                  'good, and so does anything you imported.'
-                }
-              >
-                Using {formatBytes(storage.usage)} of browser storage
-                <HelpMark />
-              </p>
-            )
+            <p
+              className="mt-1 text-xs text-gray-500 dark:text-slate-400"
+              title={
+                'Automatic recordings are deleted oldest first once there ' +
+                'are more than 10. Renaming or downloading one keeps it for ' +
+                'good, and so does anything you imported.'
+              }
+            >
+              {storage
+                ? `Using ${formatBytes(storage.usage)} of browser storage`
+                : `Recordings take about ${formatBytes(
+                    entries.reduce((sum, e) => sum + e.meta.bytes, 0),
+                  )}`}
+              <HelpMark />
+            </p>
           )}
+        </div>
+
+        <div className="mt-4 border-t border-gray-200 pt-2 dark:border-slate-600">
+          <h3 className="mb-1 font-medium">Comparing</h3>
+          <label
+            className="flex items-center gap-2 text-sm"
+            title="As an op mode is initialised, the selected recordings open in compare mode and line up on its start."
+          >
+            <input
+              type="checkbox"
+              className="rounded text-primary-600"
+              checked={playback.compareOnStart}
+              onChange={(e) => dispatch(setCompareOnStart(e.target.checked))}
+            />
+            Compare the selected recordings when an op mode starts
+          </label>
+          <label
+            className="flex items-center gap-2 text-sm"
+            title="Whenever the list changes, every saved recording is ticked, new ones included."
+          >
+            <input
+              type="checkbox"
+              className="rounded text-primary-600"
+              checked={playback.autoSelect}
+              onChange={(e) => dispatch(setAutoSelect(e.target.checked))}
+            />
+            Select every recording automatically
+          </label>
         </div>
       </BaseViewBody>
     </BaseView>

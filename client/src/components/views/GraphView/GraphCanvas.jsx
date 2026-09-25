@@ -48,12 +48,17 @@ class GraphCanvas extends React.Component {
       graphIsDirty = true;
     }
 
+    if (!prevProps.paused && this.props.paused) this.frozenAt = Date.now();
     if (prevProps.paused && !this.props.paused) {
-      this.graph.reset();
+      if (!this.props.replayDriven) {
+        this.graph.reset();
+      } else if (!prevProps.userPaused) {
+        // The recording paused too, so what is plotted moves up to meet it.
+        this.graph.shift(Date.now() - (this.frozenAt ?? Date.now()));
+      }
     }
 
-    // Replay timestamps run on a virtual clock and a seek re-sends history that
-    // predates what is plotted, so this reset must precede the add below.
+    // Before the add below: a seek re-sends history older than what is plotted.
     const didReset = prevProps.resetToken !== this.props.resetToken;
     if (didReset) {
       this.graph.reset();
@@ -69,17 +74,17 @@ class GraphCanvas extends React.Component {
       this.graph.add(Date.now(), this.props.data);
     }
 
-    // With the RAF loop stopped this is the only place a paused plot repaints; a
-    // seek arrives as several commits and only one carries the token. Gated on
-    // replayDriven because `paused` is also the panel's own Pause.
+    // With the RAF loop stopped this is the only place a paused plot repaints.
+    // The panel's own Pause holds it still as the replay plays, but not a seek.
     if (
       this.props.replayDriven &&
       this.props.paused &&
-      (didReset || dataChanged)
+      (didReset || (dataChanged && !this.props.userPaused))
     ) {
       const now = Date.now();
       // onResize needs this: pausedTime is nowhere near a scrubbed playhead.
       this.lastRenderMs = now;
+      this.frozenAt = now;
       this.graph.add(now, this.props.data);
       this.setState(() => ({
         graphEmpty: !this.graph.render(now),
@@ -92,7 +97,7 @@ class GraphCanvas extends React.Component {
   }
 
   renderGraph() {
-    // Must stay idempotent: a second chain overwrites the stored id, and unmount
+    // Must be idempotent: a second chain overwrites the stored id, and unmount
     // can only cancel the id it can see, so the orphan renders on forever.
     if (this.requestId) cancelAnimationFrame(this.requestId);
 
@@ -138,6 +143,7 @@ GraphCanvas.propTypes = {
   data: PropTypes.arrayOf(PropTypes.any).isRequired,
   options: PropTypes.object.isRequired,
   paused: PropTypes.bool.isRequired,
+  userPaused: PropTypes.bool,
   pausedTime: PropTypes.number.isRequired,
   resetToken: PropTypes.number,
 };

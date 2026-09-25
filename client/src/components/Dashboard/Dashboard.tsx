@@ -38,6 +38,9 @@ export default function Dashboard() {
   const replayName = useSelector(
     (state: RootState) => state.playback.meta?.name ?? '',
   );
+  const overlayCount = useSelector(
+    (state: RootState) => state.playback.overlays.length,
+  );
   const replayCursorMs = useSelector(
     (state: RootState) => state.playback.cursorMs,
   );
@@ -97,10 +100,10 @@ export default function Dashboard() {
           isReplaying ? 'bg-amber-700' : 'bg-primary-600',
         )}
       >
-        <h1 className="text-2xl font-medium">FTC Dashboard</h1>
-        <div className="flex-center">
+        <h1 className="shrink-0 text-2xl font-medium">FTC Dashboard</h1>
+        <div className="flex-center min-w-0">
           <select
-            className="mx-2 rounded border-primary-300 bg-primary-100 py-1 text-sm text-black focus:border-primary-100 focus:ring-2 focus:ring-white focus:ring-opacity-40"
+            className="mx-2 shrink-0 rounded border-primary-300 bg-primary-100 py-1 text-sm text-black focus:border-primary-100 focus:ring-2 focus:ring-white focus:ring-opacity-40"
             value={layoutPreset as LayoutPresetType}
             onChange={(evt) =>
               dispatch(saveLayoutPreset(evt.target.value as LayoutPresetType))
@@ -117,58 +120,59 @@ export default function Dashboard() {
                 </option>
               ))}
           </select>
-          {isReplaying ? (
+          {(isReplaying || isComparing) && (
             <>
-              <p className="mx-2 flex items-center gap-1.5 whitespace-nowrap text-sm font-medium">
-                <ReplayBadge source="replacing" onHeader />
-                Reviewing {replayName || 'a recording'} ·{' '}
-                {formatClock(replayCursorMs)} of {formatClock(replayDurationMs)}
+              <p className="mx-2 hidden min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap text-sm font-medium md:flex">
+                <ReplayBadge
+                  source={isReplaying ? 'replacing' : 'alongside'}
+                  count={1 + overlayCount}
+                  onHeader
+                />
+                <span className="min-w-0 truncate" title={replayName}>
+                  {isReplaying ? 'Reviewing' : 'Comparing'}{' '}
+                  {replayName || 'a recording'}
+                  {isComparing &&
+                    overlayCount > 0 &&
+                    ` and ${overlayCount} more`}
+                </span>
+                {isReplaying && (
+                  <span className="hidden shrink-0 lg:inline">
+                    · {formatClock(replayCursorMs)} of{' '}
+                    {formatClock(replayDurationMs)}
+                  </span>
+                )}
               </p>
               <button
-                className="rounded border border-white/40 px-2 py-0.5 text-sm transition hover:bg-white/20"
+                className="shrink-0 rounded border border-white/40 px-2 py-0.5 text-sm transition hover:bg-white/20"
+                aria-label="Close recording"
                 onClick={() => dispatch(exitPlayback())}
               >
-                Close recording
+                Close<span className="hidden lg:inline"> recording</span>
               </button>
             </>
-          ) : (
-            <>
-              {isComparing && (
-                <>
-                  <p className="mx-2 flex items-center gap-1.5 whitespace-nowrap text-sm font-medium">
-                    <ReplayBadge source="alongside" onHeader />
-                    Comparing {replayName || 'a recording'}
-                  </p>
-                  <button
-                    className="rounded border border-white/40 px-2 py-0.5 text-sm transition hover:bg-white/20"
-                    onClick={() => dispatch(exitPlayback())}
-                  >
-                    Close recording
-                  </button>
-                </>
-              )}
-              {socket.isConnected && (
-                <p
-                  className="mx-2"
-                  style={{
-                    width: batteryVoltage > 0 ? '120px' : '60px',
-                    textAlign: 'right',
-                  }}
-                >
-                  {socket.pingTime}ms
-                  {batteryVoltage > 0 ? ` / ${batteryVoltage.toFixed(2)}V` : ''}
-                </p>
-              )}
-            </>
+          )}
+          {/* The robot is still live while reviewing, and between runs the
+              battery is what a team looks at. */}
+          {socket.isConnected && (
+            <p
+              className="mx-2 shrink-0"
+              style={{
+                width: batteryVoltage > 0 ? '120px' : '60px',
+                textAlign: 'right',
+              }}
+            >
+              {socket.pingTime}ms
+              {batteryVoltage > 0 ? ` / ${batteryVoltage.toFixed(2)}V` : ''}
+            </p>
           )}
           {socket.isConnected ? (
-            <ConnectedIcon className="ml-4 h-10 w-10 py-1" />
+            <ConnectedIcon className="ml-4 h-10 w-10 shrink-0 py-1" />
           ) : (
-            <DisconnectedIcon className="ml-4 h-10 w-10 py-1" />
+            <DisconnectedIcon className="ml-4 h-10 w-10 shrink-0 py-1" />
           )}
           <BaseViewIconButton
             title="Settings"
-            className="icon-btn group ml-3 h-8 w-8 hover:border-white/50"
+            className="icon-btn group ml-3 h-8 w-8 shrink-0 hover:border-white/50"
             onClick={() => setIsSettingsModalOpen(true)}
           >
             <SettingsIcon className="h-7 w-7 transition group-hover:rotate-[15deg] group-focus:rotate-[15deg]" />

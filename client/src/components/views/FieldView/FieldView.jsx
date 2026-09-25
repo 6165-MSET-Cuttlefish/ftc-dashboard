@@ -4,6 +4,7 @@ import { connect } from 'react-redux';
 
 import BaseView, { BaseViewHeading } from '@/components/views/BaseView';
 import ReplayBadge from '@/components/views/ReplayBadge';
+import { GHOST_RESET } from '@/store/recording/ghosts';
 import Field from './Field';
 import AutoFitCanvas from '@/components/Canvas/AutoFitCanvas';
 
@@ -31,10 +32,16 @@ class FieldView extends React.Component {
   componentDidUpdate(prevProps) {
     if (
       this.props.telemetry === prevProps.telemetry &&
-      this.props.replay === prevProps.replay
+      this.props.replay === prevProps.replay &&
+      this.props.foldToken === prevProps.foldToken
     )
       return;
 
+    // Comes in the same render as the batch after it, so an empty batch sent
+    // alongside it would never be seen.
+    if (this.props.foldToken !== prevProps.foldToken) {
+      this.overlay = { bg: [], ops: [] };
+    }
     this.syncOverlay();
   }
 
@@ -42,31 +49,15 @@ class FieldView extends React.Component {
     const replayOps = this.props.replay.ops;
 
     // Background (`field`) and drawing (`fieldOverlay`) kept apart so the ghost
-    // can layer between them. An empty `field.ops` means the packet carried no
-    // background, not that there is none, and one only ever arrives in a packet.
+    // can layer between them. The server keeps `field` on the packet that keeps
+    // the overlay, so an empty one there is `new TelemetryPacket(false)`.
     this.overlay = this.props.telemetry.reduce(
       (acc, { field, fieldOverlay }) =>
         fieldOverlay.ops.length === 0
           ? acc
-          : {
-              bg: field.ops.length > 0 ? field.ops : acc.bg ?? [],
-              ops: fieldOverlay.ops,
-            },
+          : { bg: field.ops, ops: fieldOverlay.ops },
       this.overlay,
     );
-
-    // Every op Field.js carries across ops, reset as if the ghost had not drawn:
-    // transforms accumulate and fill/stroke sit on the context, so a recording
-    // that sets any of them re-colours or moves the live robot drawn after it.
-    const GHOST_RESET = [
-      { type: 'alpha', alpha: 1 },
-      { type: 'translate', x: 0, y: 0 },
-      { type: 'rotation', rotation: 0 },
-      { type: 'scale', scaleX: 1, scaleY: 1 },
-      { type: 'fill', color: '#000' },
-      { type: 'stroke', color: '#000' },
-      { type: 'strokeWidth', width: 1 },
-    ];
 
     this.field.setOverlay({
       ...this.overlay,
@@ -95,7 +86,10 @@ class FieldView extends React.Component {
             <ReplayBadge source="replacing" />
           )}
           {this.props.playbackMode === 'ghost' && (
-            <ReplayBadge source="alongside" />
+            <ReplayBadge
+              source="alongside"
+              count={1 + this.props.overlayCount}
+            />
           )}
         </BaseViewHeading>
         <AutoFitCanvas
@@ -112,6 +106,8 @@ FieldView.propTypes = {
   telemetry: PropTypes.arrayOf(PropTypes.object).isRequired,
   replay: PropTypes.object.isRequired,
   playbackMode: PropTypes.string.isRequired,
+  foldToken: PropTypes.number.isRequired,
+  overlayCount: PropTypes.number.isRequired,
   isDraggable: PropTypes.bool,
   isUnlocked: PropTypes.bool,
 };
@@ -120,6 +116,8 @@ const mapStateToProps = ({ telemetry, replay, playback }) => ({
   telemetry,
   replay,
   playbackMode: playback.mode,
+  foldToken: playback.foldToken,
+  overlayCount: playback.overlays.length,
 });
 
 export default connect(mapStateToProps)(FieldView);
