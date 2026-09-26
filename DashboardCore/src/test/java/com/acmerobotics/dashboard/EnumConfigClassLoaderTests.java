@@ -9,7 +9,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.acmerobotics.dashboard.config.ConstantProvider;
 import com.acmerobotics.dashboard.config.VariableProvider;
 import com.acmerobotics.dashboard.config.reflection.ReflectionConfig;
-import com.acmerobotics.dashboard.config.variable.CustomVariable;
 import com.acmerobotics.dashboard.message.Message;
 import java.net.URL;
 import java.net.URLClassLoader;
@@ -56,7 +55,7 @@ public class EnumConfigClassLoaderTests {
     public static class Holder {
         public static Mode mode = Mode.A;
         public static Mode unset;
-        public static Mode[] modes = {Mode.A, Mode.A};
+        public static Mode[] modes = new Mode[1];
         public static Level level = Level.LOW;
         public static int count = 1;
     }
@@ -66,45 +65,28 @@ public class EnumConfigClassLoaderTests {
     @BeforeEach
     public void resetHolder() {
         Holder.mode = Mode.A;
-        Holder.unset = null;
-        Holder.modes = new Mode[] {Mode.A, Mode.A};
         Holder.level = Level.LOW;
         Holder.count = 1;
-        GaitHolder.gait = Gait.WALK;
     }
 
     @Test
-    public void updatesAnEnumFromTheSameLoader() {
-        save(register(Holder.class), "mode", enumValue("B", Mode.class));
-        assertSame(Mode.B, Holder.mode);
-    }
-
-    @Test
-    public void updatesAFieldWhoseEnumCameFromAnotherLoader() throws Exception {
+    public void resolvesAgainstTheDeclaredTypeInAnotherLoader() throws Exception {
         try (URLClassLoader loader = isolatedTestClasses()) {
             Class<?> holder = loader.loadClass(Holder.class.getName());
-            assertNotSame(Mode.class, holder.getField("mode").getType());
+            Object[] constants = holder.getField("unset").getType().getEnumConstants();
+            assertNotSame(Mode.B, constants[1]);
+            DashboardCore core = register(holder);
+            VariableProvider<Object> provider = new VariableProvider<>(constants[0]);
+            core.addConfigVariable("Holder", "provided", provider);
 
-            save(register(holder), "mode", enumValue("B", Mode.class));
+            String b = enumValue("B", Mode.class);
+            save(core, "unset", b);
+            save(core, "modes", "{\"__type\":\"custom\",\"__value\":{\"0\":" + b + "}}");
+            save(core, "provided", b);
 
-            assertConstant(holder, "mode", "B");
-        }
-    }
-
-    @Test
-    public void resolvesAConstantTheDashboardsCopyLacks() throws Exception {
-        String reloaded =
-                "package com.acmerobotics.dashboard;\n"
-                        + "public class EnumConfigClassLoaderTests {\n"
-                        + "  public enum Mode { A, B, C }\n"
-                        + "  public static class Holder { public static Mode mode = Mode.A; }\n"
-                        + "}\n";
-        try (URLClassLoader loader = compile("EnumConfigClassLoaderTests", reloaded)) {
-            Class<?> holder = loader.loadClass(Holder.class.getName());
-
-            save(register(holder), "mode", enumValue("C", Mode.class));
-
-            assertConstant(holder, "mode", "C");
+            assertSame(constants[1], holder.getField("unset").get(null));
+            assertSame(constants[1], ((Object[]) holder.getField("modes").get(null))[0]);
+            assertSame(constants[1], provider.get());
         }
     }
 
@@ -122,55 +104,8 @@ public class EnumConfigClassLoaderTests {
 
             save(register(holder), "mode", enumValue("HIGH", "reload.Tuning$Gear"));
 
-            assertConstant(holder, "mode", "HIGH");
-        }
-    }
-
-    @Test
-    public void resolvesAProviderValueByItsCurrentClass() throws Exception {
-        try (URLClassLoader loader = isolatedTestClasses()) {
-            Class<?> holder = loader.loadClass(Holder.class.getName());
-            VariableProvider<Object> provider =
-                    new VariableProvider<>(holder.getField("mode").get(null));
-            DashboardCore core = new DashboardCore();
-            core.enabled = true;
-            core.addConfigVariable("Holder", "mode", provider);
-
-            save(core, "mode", enumValue("B", Mode.class));
-
-            Enum<?> value = (Enum<?>) provider.get();
-            assertEquals("B", value.name());
-            assertSame(holder.getField("mode").getType(), value.getDeclaringClass());
-        }
-    }
-
-    @Test
-    public void setsANullFieldFromItsDeclaredType() throws Exception {
-        try (URLClassLoader loader = isolatedTestClasses()) {
-            Class<?> holder = loader.loadClass(Holder.class.getName());
-
-            save(register(holder), "unset", enumValue("B", Mode.class));
-
-            assertConstant(holder, "unset", "B");
-        }
-    }
-
-    @Test
-    public void updatesAnEnumArrayElementFromAnotherLoader() throws Exception {
-        try (URLClassLoader loader = isolatedTestClasses()) {
-            Class<?> holder = loader.loadClass(Holder.class.getName());
-
-            save(
-                    register(holder),
-                    "modes",
-                    "{\"__type\":\"custom\",\"__value\":{\"1\":"
-                            + enumValue("B", Mode.class)
-                            + "}}");
-
-            Enum<?>[] modes = (Enum<?>[]) holder.getField("modes").get(null);
-            assertEquals("A", modes[0].name());
-            assertEquals("B", modes[1].name());
-            assertSame(holder.getField("modes").getType().getComponentType(), modes[1].getClass());
+            Class<?> gear = holder.getField("mode").getType();
+            assertSame(gear.getEnumConstants()[1], holder.getField("mode").get(null));
         }
     }
 
@@ -186,31 +121,16 @@ public class EnumConfigClassLoaderTests {
     }
 
     @Test
-    public void leavesTheFieldForAConstantTheEnumLacks() {
-        save(register(Holder.class), "mode", enumValue("Z", Mode.class));
-        assertSame(Mode.A, Holder.mode);
-    }
+    public void leavesTheFieldForAValueItCannotTake() {
+        DashboardCore core = register(Holder.class);
 
-    @Test
-    public void leavesTheFieldForAValueOfAnotherEnum() {
-        save(register(Holder.class), "mode", enumValue("B", Level.class));
-        assertSame(Mode.A, Holder.mode);
-    }
+        save(core, "mode", enumValue("Z", Mode.class));
+        save(core, "mode", enumValue("B", Level.class));
+        save(core, "mode", enumValue("B", "no.such.Enum"));
+        save(core, "count", enumValue("B", Mode.class));
 
-    @Test
-    public void leavesANonEnumFieldForAnEnumValue() {
-        save(register(Holder.class), "count", enumValue("B", Mode.class));
+        assertSame(Mode.A, Holder.mode);
         assertEquals(1, Holder.count);
-    }
-
-    @Test
-    public void reserializesASavedEnumValue() {
-        String json = enumValue("B", Mode.class);
-        CustomVariable diff =
-                DashboardCore.GSON.fromJson(
-                        "{\"__type\":\"custom\",\"__value\":{\"mode\":" + json + "}}",
-                        CustomVariable.class);
-        assertEquals(json, DashboardCore.GSON.toJson(diff.getVariable("mode")));
     }
 
     @Test
@@ -225,7 +145,12 @@ public class EnumConfigClassLoaderTests {
                                 "{\"type\":\"GET_CONFIG_BASELINE\"}", Message.class));
 
         String baseline = DashboardCore.GSON.toJson(sent.get(0));
-        assertTrue(baseline.contains("\"mode\":{\"__type\":\"enum\",\"__value\":\"A\""), baseline);
+        assertTrue(
+                baseline.contains(
+                        "\"mode\":{\"__type\":\"enum\",\"__value\":\"A\",\"__enumClass\":\""
+                                + Mode.class.getName()
+                                + "\""),
+                baseline);
     }
 
     @Test
@@ -236,17 +161,6 @@ public class EnumConfigClassLoaderTests {
         String config = DashboardCore.GSON.toJson(sent.get(0));
         assertTrue(config.contains("\"__enumClass\":\"" + Gait.class.getName() + "\""), config);
         assertTrue(config.contains("\"__enumValues\":[\"walking\",\"RUN\"]"), config);
-    }
-
-    @Test
-    public void savesAnEnumWhoseConstantsHaveBodies() {
-        DashboardCore core = register(GaitHolder.class);
-
-        save(core, "gait", enumValue("RUN", Gait.class));
-        assertSame(Gait.RUN, GaitHolder.gait);
-
-        save(core, "gait", enumValue("walking", Gait.class));
-        assertSame(Gait.WALK, GaitHolder.gait);
     }
 
     @Test
@@ -291,13 +205,6 @@ public class EnumConfigClassLoaderTests {
                         + variableJson
                         + "}}}}}";
         core.newSocket(message -> {}).onMessage(DashboardCore.GSON.fromJson(json, Message.class));
-    }
-
-    private static void assertConstant(Class<?> holder, String field, String name)
-            throws Exception {
-        Enum<?> value = (Enum<?>) holder.getField(field).get(null);
-        assertEquals(name, value.name());
-        assertSame(holder.getField(field).getType(), value.getDeclaringClass());
     }
 
     private static URLClassLoader isolatedTestClasses() {

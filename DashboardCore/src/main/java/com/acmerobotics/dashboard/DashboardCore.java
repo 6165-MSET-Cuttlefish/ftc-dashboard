@@ -1,9 +1,7 @@
 package com.acmerobotics.dashboard;
 
-import com.acmerobotics.dashboard.config.ConstantProvider;
 import com.acmerobotics.dashboard.config.ValueProvider;
 import com.acmerobotics.dashboard.config.variable.BasicVariable;
-import com.acmerobotics.dashboard.config.variable.ConfigVariable;
 import com.acmerobotics.dashboard.config.variable.ConfigVariableDeserializer;
 import com.acmerobotics.dashboard.config.variable.ConfigVariableSerializer;
 import com.acmerobotics.dashboard.config.variable.CustomVariable;
@@ -20,7 +18,6 @@ import com.google.gson.GsonBuilder;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -55,26 +52,12 @@ public class DashboardCore {
                     .create();
 
     /**
-     * Snapshots the current value of every configuration variable. A JSON round trip would not do:
-     * enum values deserialize to names that only the variable they update can resolve.
+     * Creates a deep copy of a CustomVariable by serializing and deserializing it. This ensures we
+     * capture the current state of all configuration values.
      */
-    private static CustomVariable deepCopyConfig(CustomVariable original) {
-        if (original.getValue() == null) {
-            return new CustomVariable(null);
-        }
-
-        CustomVariable copy = new CustomVariable();
-        for (Map.Entry<String, ConfigVariable> entry : original.entrySet()) {
-            ConfigVariable<?> variable = entry.getValue();
-            copy.putVariable(
-                    entry.getKey(),
-                    variable instanceof CustomVariable
-                            ? deepCopyConfig((CustomVariable) variable)
-                            : new BasicVariable<>(
-                                    variable.getType(),
-                                    new ConstantProvider<Object>(variable.getValue())));
-        }
-        return copy;
+    private CustomVariable deepCopyConfig(CustomVariable original) {
+        String json = GSON.toJson(original);
+        return GSON.fromJson(json, CustomVariable.class);
     }
 
     private class TelemetryUpdateRunnable implements Runnable {
