@@ -187,14 +187,14 @@ const LoggingView = ({
       setIsRecording(false);
     } else if (activeOpMode === STOP_OP_MODE_TAG) {
       setIsRecording(false);
+    } else if (activeOpModeStatus === OpModeStatus.STOPPED) {
+      setIsRecording(false);
     } else if (
       (activeOpModeStatus === OpModeStatus.RUNNING || telemetry.length > 1) &&
       !isRecording
     ) {
       setIsRecording(true);
       clearPastTelemetry();
-    } else if (activeOpModeStatus === OpModeStatus.STOPPED) {
-      setIsRecording(false);
     }
   }, [
     activeOpMode,
