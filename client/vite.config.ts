@@ -1,19 +1,14 @@
-/// <reference types="vitest" />
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import svgr from 'vite-plugin-svgr';
 import path from 'path';
 
-export default defineConfig(({ mode }) => ({
+export default defineConfig({
   base: '/dash/',
-  // Vitest runs in serve mode, where the fast refresh preamble needs a real browser page.
-  plugins: [react({ fastRefresh: mode !== 'test' }), svgr()],
+  plugins: [react(), svgr()],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
     },
   },
-  test: {
-    environment: 'jsdom',
-  },
-}));
+});
