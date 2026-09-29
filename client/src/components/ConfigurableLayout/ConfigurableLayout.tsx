@@ -404,11 +404,25 @@ export default function ConfigurableLayout() {
     const keyDownListener = (e: KeyboardEvent) => {
       if (isLayoutLocked) return;
 
+      const target = e.target;
+      if (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        (target instanceof HTMLElement && target.isContentEditable)
+      ) {
+        return;
+      }
+
       const isMac = navigator.platform.indexOf('Mac') > -1;
       if (!(isMac ? e.metaKey : e.ctrlKey)) return;
 
-      // With Shift held the key reports as 'Z'.
-      const key = e.key.toLowerCase();
+      // Shift can make the key report 'Z'. Non-Latin layouts report their own
+      // letter, so those fall back to the physical key.
+      const key =
+        e.key.length === 1 && e.key.charCodeAt(0) > 127
+          ? e.code.replace('Key', '').toLowerCase()
+          : e.key.toLowerCase();
       if (key === 'z') {
         if (e.shiftKey) {
           redoGrid();
