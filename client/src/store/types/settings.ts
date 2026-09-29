@@ -28,7 +28,7 @@ export type SettingState = {
   // The saved layout the custom layout was last loaded from, if any.
   activeSavedLayout: { id: string; edited: boolean } | null;
   // A layout waiting for the custom layout to apply it.
-  layoutToLoad: { code: string; nonce: number } | null;
+  layoutToLoad: { name: string; code: string } | null;
 };
 
 export type SaveLayoutPresetAction = {
@@ -47,6 +47,7 @@ export type GetLayoutPresetAction = {
 
 export type GetSavedLayoutsAction = {
   type: typeof GET_SAVED_LAYOUTS;
+  fromOtherTab: boolean;
 };
 
 export type ReceiveSavedLayoutsAction = {
@@ -75,8 +76,8 @@ export type LoadSavedLayoutAction = {
 
 export type ReceiveLayoutToLoadAction = {
   type: typeof RECEIVE_LAYOUT_TO_LOAD;
+  name: string;
   code: string;
-  nonce: number;
 };
 
 export type LayoutLoadedAction = {

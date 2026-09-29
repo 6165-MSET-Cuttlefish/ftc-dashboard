@@ -18,7 +18,8 @@ type ShareLayoutModalProps = {
   savedLayouts: SavedLayout[];
   // Name of the saved layout the current one came from, if any.
   activeLayoutName: string | null;
-  onSave: (name: string) => void;
+  // Returns an error message, or null when the layout was saved.
+  onSave: (name: string) => string | null;
   onLoad: (id: string) => void;
   onDelete: (id: string) => void;
 };
@@ -107,6 +108,7 @@ export default function ShareLayoutModal({
   const [copied, setCopied] = useState<CopyStatus | null>(null);
   const [layoutName, setLayoutName] = useState('');
   const [isSaved, setIsSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [importText, setImportText] = useState('');
   const [importError, setImportError] = useState<string | null>(null);
   const applyButtonRef = useRef<HTMLButtonElement>(null);
@@ -121,6 +123,7 @@ export default function ShareLayoutModal({
       setCopied(null);
       setLayoutName(activeLayoutName ?? '');
       setIsSaved(false);
+      setSaveError(null);
     }
     wasOpen.current = isOpen;
   }, [isOpen, initialImportText, activeLayoutName]);
@@ -154,8 +157,9 @@ export default function ShareLayoutModal({
 
   const save = () => {
     if (!canSave) return;
-    onSave(layoutName.trim());
-    setIsSaved(true);
+    const error = onSave(layoutName.trim());
+    setSaveError(error);
+    setIsSaved(error === null);
   };
 
   const applyImport = () => {
@@ -282,6 +286,11 @@ export default function ShareLayoutModal({
                     {isSaved ? 'Saved' : ''}
                   </span>
                 </div>
+                {saveError !== null && (
+                  <p role="alert" className={clsx(ERROR_CLASSES, 'mt-1')}>
+                    {saveError}
+                  </p>
+                )}
                 {savedLayouts.length > 0 && (
                   <ul className="mt-2 max-h-32 divide-y divide-gray-200 overflow-y-auto dark:divide-slate-600">
                     {savedLayouts.map((layout) => (

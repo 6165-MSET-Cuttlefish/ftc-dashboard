@@ -19,8 +19,10 @@ import {
 import { RootState } from '@/store/reducers';
 
 const LAYOUT_PRESET_KEY = 'layoutPreset';
-const SAVED_LAYOUTS_KEY = 'savedLayouts';
-const ACTIVE_SAVED_LAYOUT_KEY = 'activeSavedLayoutId';
+
+export const SAVED_LAYOUTS_KEY = 'savedLayouts';
+// Written by the custom layout together with its grid.
+export const ACTIVE_SAVED_LAYOUT_KEY = 'activeSavedLayoutId';
 
 const isSavedLayout = (value: unknown): value is SavedLayout =>
   typeof value === 'object' &&
@@ -38,17 +40,16 @@ function readSavedLayouts(): SavedLayout[] {
   }
 }
 
-function writeSavedLayouts(layouts: SavedLayout[], activeId: string | null) {
+// Throws when storage is full.
+function writeSavedLayouts(layouts: SavedLayout[]) {
   localStorage.setItem(SAVED_LAYOUTS_KEY, JSON.stringify(layouts));
-  if (activeId === null) {
-    localStorage.removeItem(ACTIVE_SAVED_LAYOUT_KEY);
-  } else {
-    localStorage.setItem(ACTIVE_SAVED_LAYOUT_KEY, activeId);
-  }
 }
 
 const sameName = (a: string, b: string) =>
   a.trim().toLowerCase() === b.trim().toLowerCase();
+
+const keepIfPresent = (layouts: SavedLayout[], id: string | null) =>
+  id !== null && layouts.some((l) => l.id === id) ? id : null;
 
 const storageMiddleware: Middleware<Record<string, unknown>, RootState> =
   (store) => (next) => (action) => {
@@ -71,19 +72,21 @@ const storageMiddleware: Middleware<Record<string, unknown>, RootState> =
           action.preset === LayoutPreset.CONFIGURABLE &&
           store.getState().settings.activeSavedLayout !== null
         ) {
-          const layouts = readSavedLayouts();
-          writeSavedLayouts(layouts, null);
-          store.dispatch(receiveSavedLayouts(layouts, null));
+          store.dispatch(receiveSavedLayouts(readSavedLayouts(), null));
         }
 
         break;
       }
       case GET_SAVED_LAYOUTS: {
         const layouts = readSavedLayouts();
-        const storedId = localStorage.getItem(ACTIVE_SAVED_LAYOUT_KEY);
-        const activeId = layouts.some((l) => l.id === storedId)
-          ? storedId
-          : null;
+        // The stored id is whichever tab wrote last, so another tab's change
+        // keeps this tab's own.
+        const activeId = keepIfPresent(
+          layouts,
+          action.fromOtherTab
+            ? store.getState().settings.activeSavedLayout?.id ?? null
+            : localStorage.getItem(ACTIVE_SAVED_LAYOUT_KEY),
+        );
 
         store.dispatch(receiveSavedLayouts(layouts, activeId));
 
@@ -100,7 +103,7 @@ const storageMiddleware: Middleware<Record<string, unknown>, RootState> =
           ? layouts.map((l) => (l.id === saved.id ? saved : l))
           : [...layouts, saved];
 
-        writeSavedLayouts(updated, saved.id);
+        writeSavedLayouts(updated);
         store.dispatch(receiveSavedLayouts(updated, saved.id));
 
         break;
@@ -109,12 +112,9 @@ const storageMiddleware: Middleware<Record<string, unknown>, RootState> =
         const layouts = readSavedLayouts().filter((l) => l.id !== action.id);
         const active = store.getState().settings.activeSavedLayout;
         // Another tab may have removed the active layout in the meantime.
-        const activeId =
-          active !== null && layouts.some((l) => l.id === active.id)
-            ? active.id
-            : null;
+        const activeId = keepIfPresent(layouts, active?.id ?? null);
 
-        writeSavedLayouts(layouts, activeId);
+        writeSavedLayouts(layouts);
         store.dispatch(receiveSavedLayouts(layouts, activeId));
 
         break;
@@ -122,30 +122,31 @@ const storageMiddleware: Middleware<Record<string, unknown>, RootState> =
       case LOAD_SAVED_LAYOUT: {
         const layouts = readSavedLayouts();
         const layout = layouts.find((l) => l.id === action.id);
-        const active = store.getState().settings.activeSavedLayout;
+        const { activeSavedLayout: active, layoutPreset } =
+          store.getState().settings;
 
         if (layout === undefined) {
           // Gone from another tab: refresh the list instead of doing nothing.
-          const activeId =
-            active !== null && layouts.some((l) => l.id === active.id)
-              ? active.id
-              : null;
-          writeSavedLayouts(layouts, activeId);
+          const activeId = keepIfPresent(layouts, active?.id ?? null);
           store.dispatch(receiveSavedLayouts(layouts, activeId));
           break;
         }
 
         // Coming back to the layout that is already loaded keeps any edits
-        // unless the caller asked for a reload. A queued load replaces any
-        // stale one. The preset is set directly: going through
+        // unless the caller asked for a reload. A hidden custom layout shows
+        // the stored grid, which another tab may have replaced. A queued load
+        // replaces any stale one. The preset is set directly: going through
         // SAVE_LAYOUT_PRESET would detach the layout being loaded.
-        const alreadyActive = active !== null && active.id === layout.id;
+        const shownId =
+          layoutPreset === LayoutPreset.CONFIGURABLE
+            ? active?.id
+            : localStorage.getItem(ACTIVE_SAVED_LAYOUT_KEY);
+        const alreadyActive = shownId === layout.id;
         localStorage.setItem(LAYOUT_PRESET_KEY, LayoutPreset.CONFIGURABLE);
         store.dispatch(receiveLayoutPreset(LayoutPreset.CONFIGURABLE));
         if (action.force || !alreadyActive) {
-          store.dispatch(receiveLayoutToLoad(layout.code, Date.now()));
+          store.dispatch(receiveLayoutToLoad(layout.name, layout.code));
         }
-        writeSavedLayouts(layouts, layout.id);
         store.dispatch(receiveSavedLayouts(layouts, layout.id));
 
         break;

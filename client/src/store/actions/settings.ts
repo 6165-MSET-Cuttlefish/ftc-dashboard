@@ -43,8 +43,11 @@ export const getLayoutPreset = (): GetLayoutPresetAction => ({
   type: GET_LAYOUT_PRESET,
 });
 
-export const getSavedLayouts = (): GetSavedLayoutsAction => ({
+export const getSavedLayouts = (
+  fromOtherTab = false,
+): GetSavedLayoutsAction => ({
   type: GET_SAVED_LAYOUTS,
+  fromOtherTab,
 });
 
 export const receiveSavedLayouts = (
@@ -77,12 +80,12 @@ export const loadSavedLayout = (
 });
 
 export const receiveLayoutToLoad = (
+  name: string,
   code: string,
-  nonce: number,
 ): ReceiveLayoutToLoadAction => ({
   type: RECEIVE_LAYOUT_TO_LOAD,
+  name,
   code,
-  nonce,
 });
 
 export const layoutLoaded = (): LayoutLoadedAction => ({

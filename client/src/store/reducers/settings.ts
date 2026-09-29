@@ -51,7 +51,7 @@ const settingsReducer = (
     case RECEIVE_LAYOUT_TO_LOAD:
       return {
         ...state,
-        layoutToLoad: { code: action.code, nonce: action.nonce },
+        layoutToLoad: { name: action.name, code: action.code },
         // The grid is about to match the saved code again.
         activeSavedLayout:
           state.activeSavedLayout === null

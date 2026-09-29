@@ -10,14 +10,15 @@ import {
   receiveLayoutPreset,
 } from '@/store/actions/settings';
 import { RootState } from '@/store/reducers';
+import { SAVED_LAYOUTS_KEY } from '@/store/middleware/storageMiddleware';
 
 import { BaseViewIconButton } from '@/components/views/BaseView';
+import { readLayoutCodeFromUrl } from '@/components/ConfigurableLayout/layoutCode';
 import { ReactComponent as ConnectedIcon } from '@/assets/icons/connected.svg';
 import { ReactComponent as DisconnectedIcon } from '@/assets/icons/disconnected.svg';
 import { ReactComponent as SettingsIcon } from '@/assets/icons/settings.svg';
 import SettingsModal from './SettingsModal';
 import { startSocketWatcher } from '@/store/middleware/socketMiddleware';
-import { readLayoutCodeFromUrl } from '@/components/ConfigurableLayout/layoutCode';
 
 // Saved layouts share the preset list, so their option values are prefixed.
 const SAVED_OPTION_PREFIX = 'saved:';
@@ -43,16 +44,17 @@ export default function Dashboard() {
 
   useEffect(() => {
     dispatch(getLayoutPreset());
-    dispatch(getSavedLayouts());
 
     startSocketWatcher(dispatch);
   }, [dispatch]);
 
   // Saved layouts written by another tab show up here without a reload.
   useEffect(() => {
+    dispatch(getSavedLayouts());
+
     const onStorage = (e: StorageEvent) => {
-      if (e.key === null || e.key === 'savedLayouts') {
-        dispatch(getSavedLayouts());
+      if (e.key === null || e.key === SAVED_LAYOUTS_KEY) {
+        dispatch(getSavedLayouts(true));
       }
     };
 
@@ -87,9 +89,9 @@ export default function Dashboard() {
     >
       <header className="flex items-center justify-between bg-primary-600 px-3 py-1 text-white">
         <h1 className="text-2xl font-medium">FTC Dashboard</h1>
-        <div className="flex-center">
+        <div className="flex min-w-0 items-center">
           <select
-            className="mx-2 max-w-[16rem] truncate rounded border-primary-300 bg-primary-100 py-1 text-sm text-black focus:border-primary-100 focus:ring-2 focus:ring-white focus:ring-opacity-40"
+            className="mx-2 min-w-[6rem] max-w-[40vw] truncate rounded border-primary-300 bg-primary-100 py-1 text-sm text-black focus:border-primary-100 focus:ring-2 focus:ring-white focus:ring-opacity-40 sm:max-w-[16rem]"
             value={
               layoutPreset === LayoutPreset.CONFIGURABLE &&
               activeSavedLayout !== null
@@ -136,7 +138,7 @@ export default function Dashboard() {
           </select>
           {socket.isConnected && (
             <p
-              className="mx-2"
+              className="mx-2 shrink-0"
               style={{
                 width: batteryVoltage > 0 ? '120px' : '60px',
                 textAlign: 'right',
@@ -147,13 +149,13 @@ export default function Dashboard() {
             </p>
           )}
           {socket.isConnected ? (
-            <ConnectedIcon className="ml-4 h-10 w-10 py-1" />
+            <ConnectedIcon className="ml-4 h-10 w-10 shrink-0 py-1" />
           ) : (
-            <DisconnectedIcon className="ml-4 h-10 w-10 py-1" />
+            <DisconnectedIcon className="ml-4 h-10 w-10 shrink-0 py-1" />
           )}
           <BaseViewIconButton
             title="Settings"
-            className="icon-btn group ml-3 h-8 w-8 hover:border-white/50"
+            className="icon-btn group ml-3 h-8 w-8 shrink-0 hover:border-white/50"
             onClick={() => setIsSettingsModalOpen(true)}
           >
             <SettingsIcon className="h-7 w-7 transition group-hover:rotate-[15deg] group-focus:rotate-[15deg]" />

@@ -36,13 +36,13 @@ import ViewPicker from './ViewPicker';
 import ShareLayoutModal from './ShareLayoutModal';
 import {
   deleteSavedLayout,
+  getLayoutPreset,
   layoutLoaded,
   loadSavedLayout,
   saveLayout,
   saveLayoutPreset,
   setSavedLayoutEdited,
 } from '@/store/actions/settings';
-import { RootState } from '@/store/reducers';
 import {
   clearLayoutCodeFromUrl,
   decodeLayout,
@@ -65,6 +65,8 @@ import { ReactComponent as ShareIcon } from '@/assets/icons/share.svg';
 
 import { colors } from '@/hooks/useTheme';
 import { useTheme } from '@/hooks/useTheme';
+import { RootState } from '@/store/reducers';
+import { ACTIVE_SAVED_LAYOUT_KEY } from '@/store/middleware/storageMiddleware';
 
 function maxArray(a: number[], b: number[]) {
   if (a.length !== b.length) {
@@ -343,6 +345,15 @@ export default function ConfigurableLayout() {
   const gridWrapperRef = useRef<HTMLDivElement>(null);
 
   const theme = useTheme();
+
+  const [isLayoutLocked, setIsLayoutLocked] = useState(true);
+  const [isGridReady, setIsGridReady] = useState(false);
+  const [isInDeleteMode, setIsInDeleteMode] = useState(false);
+  const [isShowingViewPicker, setIsShowingViewPicker] = useState(false);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  const [sharedImportText, setSharedImportText] = useState('');
+  const [loadError, setLoadError] = useState<string | null>(null);
+
   const dispatch = useDispatch();
   const savedLayouts = useSelector(
     (state: RootState) => state.settings.savedLayouts,
@@ -354,13 +365,6 @@ export default function ConfigurableLayout() {
     (state: RootState) => state.settings.layoutToLoad,
   );
 
-  const [isLayoutLocked, setIsLayoutLocked] = useState(true);
-  const [isGridReady, setIsGridReady] = useState(false);
-  const [isInDeleteMode, setIsInDeleteMode] = useState(false);
-  const [isShowingViewPicker, setIsShowingViewPicker] = useState(false);
-  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
-  const [sharedImportText, setSharedImportText] = useState('');
-
   const [gridBgSize, setGridBgSize] = useState(40);
 
   const [
@@ -368,10 +372,18 @@ export default function ConfigurableLayout() {
     {
       initialize: initializeGrid,
       append: setGrid,
-      undo: undoGrid,
-      redo: redoGrid,
+      undo: undoHistory,
+      redo: redoHistory,
     },
   ] = useUndoHistory<GridItem[]>([]);
+
+  // Undo in the share dialog's text fields must not change the grid behind it.
+  const undoGrid = useCallback(() => {
+    if (!isShareModalOpen) undoHistory();
+  }, [isShareModalOpen, undoHistory]);
+  const redoGrid = useCallback(() => {
+    if (!isShareModalOpen) redoHistory();
+  }, [isShareModalOpen, redoHistory]);
 
   const isFabIdle = useMouseIdleListener({
     bottom: '0',
@@ -483,6 +495,31 @@ export default function ConfigurableLayout() {
     );
   }, [gridItems]);
 
+  const activeSavedLayoutId = activeSavedLayout?.id ?? null;
+
+  // A reload pairs the stored grid with the stored saved layout id, so both
+  // come from the tab that last changed either one.
+  useEffect(() => {
+    if (!isGridReady) return;
+    try {
+      window.localStorage.setItem(
+        LOCAL_STORAGE_LAYOUT_KEY,
+        JSON.stringify(gridItems),
+      );
+      if (activeSavedLayoutId === null) {
+        window.localStorage.removeItem(ACTIVE_SAVED_LAYOUT_KEY);
+      } else {
+        window.localStorage.setItem(
+          ACTIVE_SAVED_LAYOUT_KEY,
+          activeSavedLayoutId,
+        );
+      }
+    } catch {
+      // Storage is full. A grid with no saved layout id reloads as Custom.
+      window.localStorage.removeItem(ACTIVE_SAVED_LAYOUT_KEY);
+    }
+  }, [gridItems, activeSavedLayoutId, isGridReady]);
+
   // A layout link opens the share modal with its code ready to apply. The
   // hash stays until the user acts, so an early unmount does not lose it.
   useEffect(() => {
@@ -560,6 +597,13 @@ export default function ConfigurableLayout() {
     clearLayoutCodeFromUrl();
   };
 
+  // A link shows the custom layout without saving that choice, so closing
+  // its dialog without applying anything goes back to the saved preset.
+  const dismissShareModal = () => {
+    closeShareModal();
+    if (sharedImportText !== '') dispatch(getLayoutPreset());
+  };
+
   // Replaces the grid with a decoded code. Returns an error message, or null.
   const applyLayoutCode = useCallback(
     (text: string) => {
@@ -608,11 +652,13 @@ export default function ConfigurableLayout() {
     if (layoutToLoad === null) return;
     const error = applyLayoutCode(layoutToLoad.code);
     dispatch(layoutLoaded());
-    if (error !== null) {
-      console.error(error);
-      dispatch(saveLayoutPreset('CONFIGURABLE'));
-    }
+    setLoadError(
+      error === null ? null : `Could not load "${layoutToLoad.name}". ${error}`,
+    );
+    if (error !== null) dispatch(saveLayoutPreset('CONFIGURABLE'));
   }, [layoutToLoad, applyLayoutCode, dispatch]);
+
+  const shareCode = encodeLayout(toSharedItems(gridItems));
 
   // The header shows which saved layout is loaded, and whether it has changed.
   useEffect(() => {
@@ -621,12 +667,12 @@ export default function ConfigurableLayout() {
     }
     const saved = savedLayouts.find((l) => l.id === activeSavedLayout.id);
     if (saved === undefined) return;
-    const edited = encodeLayout(toSharedItems(gridItems)) !== saved.code;
+    const edited = shareCode !== saved.code;
     if (edited !== activeSavedLayout.edited) {
       dispatch(setSavedLayoutEdited(edited));
     }
   }, [
-    gridItems,
+    shareCode,
     isGridReady,
     layoutToLoad,
     activeSavedLayout,
@@ -634,7 +680,6 @@ export default function ConfigurableLayout() {
     dispatch,
   ]);
 
-  const shareCode = encodeLayout(toSharedItems(gridItems));
   const shareCheck = decodeLayout(shareCode, GRID_LIMITS);
   const exportError =
     gridItems.length === 0
@@ -695,6 +740,20 @@ export default function ConfigurableLayout() {
       bgGridSize={gridBgSize}
       isDarkMode={theme.isDarkMode}
     >
+      {loadError !== null && (
+        <div
+          role="alert"
+          className="flex items-center justify-between gap-3 bg-red-100 px-3 py-2 text-sm text-red-800 dark:bg-red-900 dark:text-red-100"
+        >
+          <span>{loadError}</span>
+          <button
+            className="shrink-0 rounded border border-current px-2 py-0.5 text-xs"
+            onClick={() => setLoadError(null)}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
       {gridItems.length === 0 && (
         <div
           className={`mt-16 p-12 text-center transition-colors ${
@@ -844,7 +903,7 @@ export default function ConfigurableLayout() {
       />
       <ShareLayoutModal
         isOpen={isShareModalOpen}
-        onClose={closeShareModal}
+        onClose={dismissShareModal}
         code={shareCode}
         exportError={exportError}
         initialImportText={sharedImportText}
@@ -853,7 +912,14 @@ export default function ConfigurableLayout() {
         activeLayoutName={
           savedLayouts.find((l) => l.id === activeSavedLayout?.id)?.name ?? null
         }
-        onSave={(name) => dispatch(saveLayout(name, shareCode))}
+        onSave={(name) => {
+          try {
+            dispatch(saveLayout(name, shareCode));
+            return null;
+          } catch {
+            return 'Could not save. The browser storage may be full.';
+          }
+        }}
         onLoad={(id) => {
           dispatch(loadSavedLayout(id, true));
           closeShareModal();

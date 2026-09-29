@@ -164,7 +164,7 @@ To share a custom layout, choose "Share or Save Layout" and copy the code or lin
 
 A code carries only the position and size of each view, not settings inside a view such as graph colors. Sizes are fixed grid rows, so a layout made on a tall screen may run below the fold on a shorter one.
 
-To keep more than one custom layout, open "Share or Save Layout", give the layout a name and press Save. Saving under a name that is already taken replaces that entry. Saved layouts appear in the layout list at the top of the page; picking one replaces the current custom layout, the list marks it as edited once you change it, and picking "Custom" detaches from it. Load and Delete for each saved layout are in the same dialog. They are stored in this browser only.
+To keep more than one custom layout, open "Share or Save Layout", give the layout a name and press Save. Saving under a name that is already taken replaces that entry. Saved layouts appear in the layout list at the top of the page. Picking one loads it, and the list marks it as edited once you change it. Picking it again after visiting another preset brings back your edits, while Load in the dialog discards them. Picking "Custom" detaches from it. Load and Delete for each saved layout are in the same dialog. They are stored in this browser only.
 
 Layout codes are plain text and can be edited by hand. Each entry is `<view>:<x>,<y>,<width>,<height>` on a 12-column grid.
 

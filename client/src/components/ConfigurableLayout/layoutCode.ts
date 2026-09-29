@@ -5,30 +5,26 @@ import { ConfigurableView } from '@/enums/ConfigurableView';
 const CODE_VERSION = 'v1';
 const ITEM_SEPARATOR = ';';
 const URL_PARAM = 'layout';
+const MAX_CODE_LENGTH = 4096;
 const MAX_ITEMS = 64;
-const MAX_ROWS = 999;
+// Views like the field redraw a canvas of their own size on every telemetry
+// packet, so shared layouts are bounded. The tallest default covers 216 cells.
+const MAX_VIEW_ROWS = 100;
+const MAX_GRID_ROWS = 300;
+const MAX_CELLS = 3600;
 
-const VIEW_KEYS: { [key in ConfigurableView]: string } = {
-  [ConfigurableView.FIELD_VIEW]: 'field',
-  [ConfigurableView.GRAPH_VIEW]: 'graph',
-  [ConfigurableView.CONFIG_VIEW]: 'config',
-  [ConfigurableView.TELEMETRY_VIEW]: 'telemetry',
-  [ConfigurableView.HARDWARE_VIEW]: 'hardware',
-  [ConfigurableView.RECORDER_VIEW]: 'recorder',
-  [ConfigurableView.CAMERA_VIEW]: 'camera',
-  [ConfigurableView.OPMODE_VIEW]: 'opmode',
-  [ConfigurableView.LOGGING_VIEW]: 'logging',
-  [ConfigurableView.HARDWARE_CONFIG_VIEW]: 'hwconfig',
-  [ConfigurableView.GAMEPAD_VIEW]: 'gamepad',
-  [ConfigurableView.ERROR_VIEW]: 'error',
-  [ConfigurableView.LIMELIGHT_VIEW]: 'limelight',
-};
+// Keys come from enum names, so a view added later gets one without an edit
+// here: HARDWARE_CONFIG_VIEW is "hardwareconfig".
+const viewKey = (view: ConfigurableView) =>
+  ConfigurableView[view]
+    .replace(/_VIEW$/, '')
+    .replace(/_/g, '')
+    .toLowerCase();
 
 const VIEWS_BY_KEY = new Map(
-  Object.entries(VIEW_KEYS).map(([view, key]) => [
-    key,
-    Number(view) as ConfigurableView,
-  ]),
+  Object.values(ConfigurableView)
+    .filter((value): value is ConfigurableView => typeof value === 'number')
+    .map((view) => [viewKey(view), view]),
 );
 
 export type SharedGridItem = {
@@ -39,12 +35,12 @@ export type SharedGridItem = {
   h: number;
 };
 
-export type GridLimits = {
+type GridLimits = {
   cols: number;
   minW: number;
 };
 
-export type DecodeResult =
+type DecodeResult =
   | { ok: true; items: SharedGridItem[] }
   | { ok: false; error: string };
 
@@ -52,8 +48,7 @@ export function encodeLayout(items: SharedGridItem[]): string {
   return [
     CODE_VERSION,
     ...items.map(
-      (item) =>
-        `${VIEW_KEYS[item.view]}:${item.x},${item.y},${item.w},${item.h}`,
+      (item) => `${viewKey(item.view)}:${item.x},${item.y},${item.w},${item.h}`,
     ),
   ].join(ITEM_SEPARATOR);
 }
@@ -62,11 +57,19 @@ function parseInteger(text: string): number | null {
   return /^\d{1,4}$/.test(text) ? Number(text) : null;
 }
 
+function quote(text: string): string {
+  return `"${text.length > 40 ? `${text.slice(0, 40)}...` : text}"`;
+}
+
 function malformed(segment: string): DecodeResult {
-  return { ok: false, error: `Malformed entry "${segment}".` };
+  return { ok: false, error: `Malformed entry ${quote(segment)}.` };
 }
 
 export function decodeLayout(code: string, limits: GridLimits): DecodeResult {
+  if (code.length > MAX_CODE_LENGTH) {
+    return { ok: false, error: 'This is too long to be a layout code.' };
+  }
+
   const segments = extractLayoutCode(code)
     .split(ITEM_SEPARATOR)
     .map((s) => s.trim())
@@ -75,8 +78,14 @@ export function decodeLayout(code: string, limits: GridLimits): DecodeResult {
   if (segments.length === 0) {
     return { ok: false, error: 'Paste a layout code or link.' };
   }
-  if (segments[0].toLowerCase() !== CODE_VERSION) {
-    return { ok: false, error: 'Not a layout code.' };
+  const version = segments[0].toLowerCase();
+  if (version !== CODE_VERSION) {
+    return {
+      ok: false,
+      error: /^v\d+$/.test(version)
+        ? 'This code is from a newer dashboard.'
+        : 'Not a layout code.',
+    };
   }
 
   const itemSegments = segments.slice(1);
@@ -88,13 +97,15 @@ export function decodeLayout(code: string, limits: GridLimits): DecodeResult {
   }
 
   const items: SharedGridItem[] = [];
+  let cells = 0;
   for (const segment of itemSegments) {
-    const [key, rect, ...rest] = segment.split(':');
-    const view = VIEWS_BY_KEY.get(key.trim().toLowerCase());
+    const [name, rect, ...rest] = segment.split(':');
+    const key = name.trim().toLowerCase();
+    const view = VIEWS_BY_KEY.get(key);
     if (view === undefined) {
       return {
         ok: false,
-        error: `Unknown view "${key}". The sender's dashboard may be newer than this one.`,
+        error: `Unknown view ${quote(key)}, perhaps from a newer dashboard.`,
       };
     }
     if (rect === undefined || rest.length > 0) {
@@ -116,14 +127,28 @@ export function decodeLayout(code: string, limits: GridLimits): DecodeResult {
     if (x + w > limits.cols) {
       return { ok: false, error: `"${key}" does not fit in the grid.` };
     }
-    if (h < 1 || h > MAX_ROWS) {
+    if (h < 1) {
       return { ok: false, error: `"${key}" has an invalid height.` };
     }
-    if (y > MAX_ROWS) {
+    if (h > MAX_VIEW_ROWS) {
+      return {
+        ok: false,
+        error: `"${key}" is taller than ${MAX_VIEW_ROWS} rows.`,
+      };
+    }
+    if (y + h > MAX_GRID_ROWS) {
       return { ok: false, error: `"${key}" is too far down the grid.` };
     }
 
+    cells += w * h;
     items.push({ view, x, y, w, h });
+  }
+
+  if (cells > MAX_CELLS) {
+    return {
+      ok: false,
+      error: `The views cover more than ${MAX_CELLS} grid cells.`,
+    };
   }
 
   return { ok: true, items };
@@ -137,12 +162,19 @@ function safeDecodeURIComponent(text: string): string {
   }
 }
 
+const isAlphanumeric = (c: string) => /[a-z0-9]/i.test(c);
+
 // Accepts a bare code or a full link and returns the code. Quotes and
 // punctuation that chat apps wrap around links are dropped.
-export function extractLayoutCode(text: string): string {
+function extractLayoutCode(text: string): string {
   const decoded = safeDecodeURIComponent(text.trim());
   const match = new RegExp(`(?:^|[#?&])${URL_PARAM}=([^&\\s]+)`).exec(decoded);
-  return (match ? match[1] : decoded).replace(/^[^a-z0-9]+|[^a-z0-9]+$/gi, '');
+  const code = match ? match[1] : decoded;
+  let start = 0;
+  let end = code.length;
+  while (start < end && !isAlphanumeric(code[start])) start++;
+  while (end > start && !isAlphanumeric(code[end - 1])) end--;
+  return code.slice(start, end);
 }
 
 export function buildLayoutLink(code: string): string {
