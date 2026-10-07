@@ -7,6 +7,7 @@ import android.content.SharedPreferences;
 import android.content.res.AssetManager;
 import android.graphics.Bitmap;
 import android.graphics.Typeface;
+import android.os.SystemClock;
 import android.util.Base64;
 import android.util.Log;
 import android.view.Menu;
@@ -228,6 +229,7 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
     private ExecutorService gamepadWatchdogExecutor;
     private ExecutorService logcatMonitorExecutor;
     private LogcatMonitorRunnable logcatMonitorRunnable;
+
     private long lastGamepadTimestamp;
 
     private boolean webServerAttached;
@@ -250,20 +252,23 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
         @Override
         public void run() {
             while (!Thread.currentThread().isInterrupted()) {
-                long timestamp = System.currentTimeMillis();
-                try {
-                    if (lastGamepadTimestamp == 0) {
-                        Thread.sleep(GAMEPAD_WATCHDOG_INTERVAL);
-                    } else if ((timestamp - lastGamepadTimestamp) > GAMEPAD_WATCHDOG_INTERVAL) {
+                long sleepMs =
                         activeOpMode.with(
                                 o -> {
+                                    if (lastGamepadTimestamp == 0) {
+                                        return (long) GAMEPAD_WATCHDOG_INTERVAL;
+                                    }
+                                    long sinceLast =
+                                            SystemClock.elapsedRealtime() - lastGamepadTimestamp;
+                                    if (sinceLast <= GAMEPAD_WATCHDOG_INTERVAL) {
+                                        return GAMEPAD_WATCHDOG_INTERVAL - sinceLast;
+                                    }
                                     OpModeGamepads.rest(o.opMode);
+                                    lastGamepadTimestamp = 0;
+                                    return (long) GAMEPAD_WATCHDOG_INTERVAL;
                                 });
-                        lastGamepadTimestamp = 0;
-                    } else {
-                        Thread.sleep(
-                                GAMEPAD_WATCHDOG_INTERVAL - (timestamp - lastGamepadTimestamp));
-                    }
+                try {
+                    Thread.sleep(sleepMs);
                 } catch (InterruptedException e) {
                     break;
                 }
@@ -1883,7 +1888,7 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
 
                     OpModeGamepads.deliver(
                             o.opMode, toSdkGamepad(gamepad1), toSdkGamepad(gamepad2));
-                    lastGamepadTimestamp = System.currentTimeMillis();
+                    lastGamepadTimestamp = SystemClock.elapsedRealtime();
                 });
     }
 
