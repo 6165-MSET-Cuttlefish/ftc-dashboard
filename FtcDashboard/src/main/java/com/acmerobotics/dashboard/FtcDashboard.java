@@ -66,11 +66,15 @@ import java.net.HttpURLConnection;
 import java.net.InetAddress;
 import java.net.URL;
 import java.nio.charset.Charset;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Calendar;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
@@ -240,6 +244,8 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
             new Mutex<>(new TreeMap<>());
 
     private final LimelightProxyManager limelightProxyManager = new LimelightProxyManager();
+
+    private final UserCodeCrash userCodeCrash = new UserCodeCrash(System.currentTimeMillis());
 
     private static class OpModeAndStatus {
         public OpMode opMode;
@@ -412,6 +418,13 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
 
     private class LogcatMonitorRunnable implements Runnable {
         private static final String OPMODE_MANAGER_TAG = "OpModeManager";
+        private static final String OPEN_CV_CAMERA_TAG = "OpenCvCamera";
+
+        private final SimpleDateFormat timestampFormat =
+                new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US);
+        private final String timestampYear =
+                String.valueOf(Calendar.getInstance().get(Calendar.YEAR));
+
         private volatile boolean running = true;
 
         @Override
@@ -420,8 +433,12 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
             BufferedReader reader = null;
 
             try {
-                // Start logcat process filtering for OpModeManager tag
-                ProcessBuilder pb = new ProcessBuilder("logcat", "-s", OPMODE_MANAGER_TAG + ":*");
+                ProcessBuilder pb =
+                        new ProcessBuilder(
+                                "logcat",
+                                "-s",
+                                OPMODE_MANAGER_TAG + ":*",
+                                OPEN_CV_CAMERA_TAG + ":E");
                 logcatProcess = pb.start();
                 reader = new BufferedReader(new InputStreamReader(logcatProcess.getInputStream()));
 
@@ -434,6 +451,7 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
                         // Example: "01-15 10:30:45.123  1234  1234 E OpModeManager: Error message"
                         ReceiveLogcatErrors.LogcatError error = parseLogcatLine(line);
                         if (error != null) {
+                            userCodeCrash.accept(error);
                             errorBuffer.add(error);
 
                             // Send errors in batches to avoid flooding
@@ -503,15 +521,22 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
                 String tag = tagAndMessage.substring(0, colonIndex).trim();
                 String message = tagAndMessage.substring(colonIndex + 1).trim();
 
-                // Only process OpModeManager messages
-                if (!OPMODE_MANAGER_TAG.equals(tag)) {
+                if (!OPMODE_MANAGER_TAG.equals(tag) && !OPEN_CV_CAMERA_TAG.equals(tag)) {
                     return null;
                 }
 
                 return new ReceiveLogcatErrors.LogcatError(
-                        System.currentTimeMillis(), level, tag, message);
+                        parseLogcatTimestamp(parts[0], parts[1]), level, tag, message);
             } catch (Exception e) {
                 return null;
+            }
+        }
+
+        private long parseLogcatTimestamp(String date, String time) {
+            try {
+                return timestampFormat.parse(timestampYear + "-" + date + " " + time).getTime();
+            } catch (ParseException e) {
+                return System.currentTimeMillis();
             }
         }
 
@@ -1902,6 +1927,11 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
                             }
                         }
 
+                        String errorMessage = RobotLog.getGlobalErrorMsg();
+                        if (errorMessage.isEmpty()) {
+                            errorMessage = userCodeCrash.getMessage();
+                        }
+
                         return new RobotStatus(
                                 core.enabled,
                                 true,
@@ -1909,7 +1939,7 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
                                 // status is an enum so it's okay to return a copy here.
                                 o.status,
                                 RobotLog.getGlobalWarningMessage().message,
-                                RobotLog.getGlobalErrorMsg(),
+                                errorMessage,
                                 batteryVoltage);
                     });
         }
@@ -1939,6 +1969,7 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
                 });
 
         if (!(opMode instanceof OpModeManagerImpl.DefaultOpMode)) {
+            userCodeCrash.reset(System.currentTimeMillis());
             clearTelemetry();
         }
     }
