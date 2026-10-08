@@ -111,7 +111,7 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
     private static final String PREFS_NAME = "FtcDashboard";
     private static final String PREFS_AUTO_ENABLE_KEY = "autoEnable";
 
-    private static final String HARDWARE_CATEGORY = "__hardware__";
+    public static final String HARDWARE_CATEGORY = "__hardware__";
 
     private static FtcDashboard instance;
 
