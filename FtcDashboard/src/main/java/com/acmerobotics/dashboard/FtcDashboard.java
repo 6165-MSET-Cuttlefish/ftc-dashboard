@@ -1043,6 +1043,12 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
                 // NOTE: It's possible that the socket has closed and we have a backlog of messages
                 // to send. Settle for logging here instead of trying to get all the checks right.
                 RobotLog.logStackTrace(e);
+            } catch (RuntimeException e) {
+                String warning = "Dashboard dropped a " + message.getType() + " message";
+                if (!RobotLog.getGlobalWarningMessage().message.contains(warning)) {
+                    RobotLog.ee(TAG, e, warning);
+                    RobotLog.addGlobalWarningMessage(warning + ": " + e);
+                }
             }
         }
 
