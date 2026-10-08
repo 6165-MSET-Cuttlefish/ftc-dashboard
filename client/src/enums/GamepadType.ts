@@ -36,7 +36,10 @@ export default {
   ...GamepadType,
 
   getFromGamepad: (gamepad: Gamepad) => {
-    if (gamepad.id.search('Logitech Dual Action') !== -1) {
+    if (
+      gamepad.mapping !== 'standard' &&
+      gamepad.id.search('Logitech Dual Action') !== -1
+    ) {
       return GamepadType.LOGITECH_DUAL_ACTION;
     } else if (
       gamepad.id.search(SONY_VID) !== -1 &&

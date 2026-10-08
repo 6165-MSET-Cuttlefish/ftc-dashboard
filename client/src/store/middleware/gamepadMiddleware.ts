@@ -33,7 +33,7 @@ const cleanMotionValues = (
 
   // apply trim
   if (value > maxMotionRange) return maxMotionRange;
-  if (value < -maxMotionRange) return maxMotionRange;
+  if (value < -maxMotionRange) return -maxMotionRange;
 
   // scale values between deadzone and trim to 0 and max range
   if (value > 0) {
@@ -133,7 +133,7 @@ const extractGamepadState = (gamepad: Gamepad) => {
         x: gamepad.buttons[2].pressed,
         y: gamepad.buttons[3].pressed,
 
-        guide: gamepad.buttons[16].pressed,
+        guide: gamepad.buttons[16]?.pressed ?? false,
         start: gamepad.buttons[9].pressed,
         back: gamepad.buttons[8].pressed,
 
@@ -163,7 +163,7 @@ const extractGamepadState = (gamepad: Gamepad) => {
           x: gamepad.buttons[2].pressed,
           y: gamepad.buttons[3].pressed,
 
-          guide: gamepad.buttons[16].pressed,
+          guide: gamepad.buttons[16]?.pressed ?? false,
           start: gamepad.buttons[9].pressed,
           back: gamepad.buttons[8].pressed,
 
