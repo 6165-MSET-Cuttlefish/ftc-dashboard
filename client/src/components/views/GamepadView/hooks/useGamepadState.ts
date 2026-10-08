@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useDispatch } from 'react-redux';
+import { isEqual } from 'lodash';
 import { GamepadState } from '@/store/types';
 import { sendGamepadState } from '@/store/actions/gamepad';
 import { AppThunkDispatch } from '@/store/reducers';
@@ -28,7 +29,9 @@ const createInitialGamepadState = (): GamepadState => ({
   right_trigger: 0,
 });
 
-export const useGamepadState = () => {
+const REST_GAMEPAD_STATE = createInitialGamepadState();
+
+export const useGamepadState = (hardwareConnected: boolean) => {
   const dispatch = useDispatch<AppThunkDispatch>();
   const [gamepad1State, setGamepad1State] = useState<GamepadState>(
     createInitialGamepadState(),
@@ -41,16 +44,24 @@ export const useGamepadState = () => {
   const gamepad1StateRef = useRef(gamepad1State);
   const gamepad2StateRef = useRef(gamepad2State);
 
-  // Send state every 100ms to keep the RC watchdog alive
   useEffect(() => {
+    if (hardwareConnected) return;
+
+    let restSent = true;
     const intervalId = setInterval(() => {
+      const atRest =
+        isEqual(gamepad1StateRef.current, REST_GAMEPAD_STATE) &&
+        isEqual(gamepad2StateRef.current, REST_GAMEPAD_STATE);
+      if (atRest && restSent) return;
+
+      restSent = atRest;
       dispatch(
         sendGamepadState(gamepad1StateRef.current, gamepad2StateRef.current),
       );
     }, 100);
 
     return () => clearInterval(intervalId);
-  }, [dispatch]);
+  }, [dispatch, hardwareConnected]);
 
   const updateGamepadState = useCallback(
     (gamepadNum: 1 | 2, newState: Partial<GamepadState>) => {

@@ -215,6 +215,36 @@ const gamepadMiddleware: Middleware<Record<string, unknown>, RootState> = (
       });
     }, 1000);
   }
+
+  function sendBoundGamepads(gamepads: (Gamepad | null)[]) {
+    if (gamepad1Index === -1 && gamepad2Index === -1) {
+      return;
+    }
+
+    const gamepad1 = gamepad1Index === -1 ? null : gamepads[gamepad1Index];
+    const gamepad2 = gamepad2Index === -1 ? null : gamepads[gamepad2Index];
+
+    (store.dispatch as AppThunkDispatch)(
+      sendGamepadState(
+        gamepad1?.connected
+          ? extractGamepadState(gamepad1)
+          : REST_GAMEPAD_STATE,
+        gamepad2?.connected
+          ? extractGamepadState(gamepad2)
+          : REST_GAMEPAD_STATE,
+      ),
+    );
+
+    if (gamepad1Index !== -1 && !gamepad1?.connected) {
+      gamepad1Index = -1;
+      store.dispatch(gamepadDisconnected(1));
+    }
+    if (gamepad2Index !== -1 && !gamepad2?.connected) {
+      gamepad2Index = -1;
+      store.dispatch(gamepadDisconnected(2));
+    }
+  }
+
   function updateGamepads() {
     const gamepads = getGamepads();
     if (gamepads.length === 0) {
@@ -257,38 +287,9 @@ const gamepadMiddleware: Middleware<Record<string, unknown>, RootState> = (
           gamepad1Index = -1;
         }
       }
-
-      // actually dispatch motion events
-      let gamepad1State;
-      if (gamepad1Index !== -1) {
-        const gamepad = gamepads[gamepad1Index];
-
-        if (gamepad) {
-          gamepad1State = extractGamepadState(gamepad);
-        } else {
-          gamepad1State = REST_GAMEPAD_STATE;
-        }
-      } else {
-        gamepad1State = REST_GAMEPAD_STATE;
-      }
-
-      let gamepad2State;
-      if (gamepad2Index !== -1) {
-        const gamepad = gamepads[gamepad2Index];
-
-        if (gamepad) {
-          gamepad2State = extractGamepadState(gamepad);
-        } else {
-          gamepad2State = REST_GAMEPAD_STATE;
-        }
-      } else {
-        gamepad2State = REST_GAMEPAD_STATE;
-      }
-
-      (store.dispatch as AppThunkDispatch)(
-        sendGamepadState(gamepad1State, gamepad2State),
-      );
     }
+
+    sendBoundGamepads(gamepads);
 
     requestAnimationFrame(updateGamepads);
   }
@@ -299,15 +300,9 @@ const gamepadMiddleware: Middleware<Record<string, unknown>, RootState> = (
     // See: https://github.com/microsoft/TypeScript/issues/39425 & https://github.com/microsoft/TypeScript-DOM-lib-generator/pull/925
     const { gamepad } = evt as GamepadEvent;
 
-    if (gamepad1Index === gamepad.index) {
-      store.dispatch(gamepadDisconnected(gamepad1Index));
-
-      gamepad1Index = -1;
-    } else if (gamepad2Index === gamepad.index) {
-      store.dispatch(gamepadDisconnected(gamepad2Index));
-
-      gamepad2Index = -1;
-    }
+    const gamepads = [...getGamepads()];
+    gamepads[gamepad.index] = null;
+    sendBoundGamepads(gamepads);
   });
 
   updateGamepads();

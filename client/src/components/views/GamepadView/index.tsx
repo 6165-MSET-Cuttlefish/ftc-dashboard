@@ -46,13 +46,13 @@ const GamepadView: React.FC<GamepadViewProps> = ({
     (state: RootState) => state.keyboardMapping,
   );
 
-  const { gamepad1State, gamepad2State, updateGamepadState } =
-    useGamepadState();
-
   // Disable all virtual controls if any hardware gamepad is connected
   const anyHardwareConnected =
     gamepadConnectionState.gamepad1Connected ||
     gamepadConnectionState.gamepad2Connected;
+
+  const { gamepad1State, gamepad2State, updateGamepadState } =
+    useGamepadState(anyHardwareConnected);
 
   // Use keyboardTargetGamepad when in both mode, otherwise use selected gamepad
   const keyboardTarget =
