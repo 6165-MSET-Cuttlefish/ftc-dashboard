@@ -27,7 +27,9 @@ public class ConfigVariableSerializer implements JsonSerializer<ConfigVariable<?
             return obj;
         }
 
-        if (configVariable.getType() == VariableType.DOUBLE && !Double.isFinite((double) value)) {
+        if ((configVariable.getType() == VariableType.DOUBLE && !Double.isFinite((double) value))
+                || (configVariable.getType() == VariableType.FLOAT
+                        && !Float.isFinite((float) value))) {
             obj.add(ConfigVariable.VALUE_KEY, new JsonPrimitive(String.valueOf(value)));
         } else {
             obj.add(ConfigVariable.VALUE_KEY, jsonSerializationContext.serialize(value));

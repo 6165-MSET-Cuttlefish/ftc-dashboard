@@ -1261,6 +1261,7 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
                         addConfigClasses(configRoot);
                     }
                 });
+        core.captureConfigBaseline();
 
         try {
             server.start();

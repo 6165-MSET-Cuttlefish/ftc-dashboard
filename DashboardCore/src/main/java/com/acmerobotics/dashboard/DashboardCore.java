@@ -254,6 +254,22 @@ public class DashboardCore {
         updateConfig();
     }
 
+    public void captureConfigBaseline() {
+        configRoot.with(
+                v -> {
+                    CustomVariable currentSnapshot = deepCopyConfig(v);
+                    configBaseline.with(
+                            baseline -> {
+                                currentSnapshot
+                                        .entrySet()
+                                        .forEach(
+                                                entry ->
+                                                        baseline.putVariable(
+                                                                entry.getKey(), entry.getValue()));
+                            });
+                });
+    }
+
     /**
      * Add config variable with custom provider.
      *
@@ -274,30 +290,19 @@ public class DashboardCore {
                         v.putVariable(category, catVar);
                     }
 
-                    // Update baseline with current configuration state if this is the first time
-                    // we're adding this variable
+                    CustomVariable added = new CustomVariable();
+                    added.putVariable(name, catVar.getVariable(name));
                     configBaseline.with(
                             baseline -> {
                                 CustomVariable baselineCatVar =
                                         (CustomVariable) baseline.getVariable(category);
-                                if (baselineCatVar == null
-                                        || baselineCatVar.getVariable(name) == null) {
-                                    // Capture the current state as baseline
-                                    CustomVariable currentSnapshot = deepCopyConfig(v);
-
-                                    // Clear and copy the new baseline
-                                    List<String> keysToRemove = new ArrayList<>();
-                                    baseline.entrySet()
-                                            .forEach(entry -> keysToRemove.add(entry.getKey()));
-                                    keysToRemove.forEach(baseline::removeVariable);
-
-                                    currentSnapshot
-                                            .entrySet()
-                                            .forEach(
-                                                    entry ->
-                                                            baseline.putVariable(
-                                                                    entry.getKey(),
-                                                                    entry.getValue()));
+                                if (baselineCatVar == null) {
+                                    baselineCatVar = new CustomVariable();
+                                    baseline.putVariable(category, baselineCatVar);
+                                }
+                                if (baselineCatVar.getVariable(name) == null) {
+                                    baselineCatVar.putVariable(
+                                            name, deepCopyConfig(added).getVariable(name));
                                 }
                             });
 
