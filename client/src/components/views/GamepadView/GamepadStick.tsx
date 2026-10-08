@@ -59,7 +59,7 @@ export const GamepadStick: React.FC<GamepadStickProps> = ({
   }, [isPressed]);
 
   const normalizedX = 50 + x * 40;
-  const normalizedY = 50 - y * 40;
+  const normalizedY = 50 + y * 40;
 
   const updateStickPosition = React.useCallback(
     (clientX: number, clientY: number) => {
@@ -70,7 +70,7 @@ export const GamepadStick: React.FC<GamepadStickProps> = ({
       const centerY = rect.top + rect.height / 2;
 
       let newX = (clientX - centerX) / (rect.width / 2);
-      let newY = -((clientY - centerY) / (rect.height / 2));
+      let newY = (clientY - centerY) / (rect.height / 2);
 
       // Calculate distance from center
       const distance = Math.sqrt(newX * newX + newY * newY);

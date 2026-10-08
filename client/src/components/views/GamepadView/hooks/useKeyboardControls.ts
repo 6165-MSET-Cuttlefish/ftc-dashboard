@@ -75,8 +75,8 @@ export const useKeyboardControls = ({
 
         if (pressedKeys.has(mapping.left_stick_left || '')) leftStickX -= 1;
         if (pressedKeys.has(mapping.left_stick_right || '')) leftStickX += 1;
-        if (pressedKeys.has(mapping.left_stick_up || '')) leftStickY += 1;
-        if (pressedKeys.has(mapping.left_stick_down || '')) leftStickY -= 1;
+        if (pressedKeys.has(mapping.left_stick_up || '')) leftStickY -= 1;
+        if (pressedKeys.has(mapping.left_stick_down || '')) leftStickY += 1;
 
         newState.left_stick_x = leftStickX;
         newState.left_stick_y = leftStickY;
@@ -94,8 +94,8 @@ export const useKeyboardControls = ({
 
         if (pressedKeys.has(mapping.right_stick_left || '')) rightStickX -= 1;
         if (pressedKeys.has(mapping.right_stick_right || '')) rightStickX += 1;
-        if (pressedKeys.has(mapping.right_stick_up || '')) rightStickY += 1;
-        if (pressedKeys.has(mapping.right_stick_down || '')) rightStickY -= 1;
+        if (pressedKeys.has(mapping.right_stick_up || '')) rightStickY -= 1;
+        if (pressedKeys.has(mapping.right_stick_down || '')) rightStickY += 1;
 
         newState.right_stick_x = rightStickX;
         newState.right_stick_y = rightStickY;
