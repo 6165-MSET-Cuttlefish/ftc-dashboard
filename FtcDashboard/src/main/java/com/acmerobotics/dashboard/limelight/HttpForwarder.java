@@ -6,6 +6,8 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.net.URL;
 import java.util.Map;
 
@@ -66,7 +68,7 @@ class HttpForwarder extends NanoHTTPD {
 
     private Response forwardRequest(IHTTPSession session) throws IOException {
         // Open a connection to the Limelight
-        URL url = new URL("http", targetHost, targetPort, session.getUri());
+        URL url = new URL("http", targetHost, targetPort, upstreamFile(session));
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod(session.getMethod().name());
         conn.setInstanceFollowRedirects(true);
@@ -126,6 +128,17 @@ class HttpForwarder extends NanoHTTPD {
     }
 
     /* ----- helpers ----- */
+
+    private static String upstreamFile(IHTTPSession session) throws IOException {
+        String path;
+        try {
+            path = new URI(null, null, session.getUri(), null).toASCIIString();
+        } catch (URISyntaxException e) {
+            throw new IOException(e);
+        }
+        String query = session.getQueryParameterString();
+        return query == null || query.isEmpty() ? path : path + "?" + query;
+    }
 
     private static boolean hasBody(Method m) {
         return m == Method.POST || m == Method.PUT || m == Method.PATCH;
