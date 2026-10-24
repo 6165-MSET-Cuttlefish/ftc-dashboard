@@ -992,6 +992,11 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
     }
 
     private void attemptRestart() {
+        AppUtil.getInstance().runOnUiThread(this::restartRobot);
+    }
+
+    // Waits for the event loop to exit, whose OpMode stop hook takes activeOpMode: hold no lock.
+    private void restartRobot() {
         // Soft-restart to allow the new config to take effect
         // This is admittedly pretty sketchy so we'll do it in a try/catch
         try {
@@ -1137,7 +1142,7 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
                         String hardwareConfigName =
                                 ((SetHardwareConfig) msg).getHardwareConfigName();
 
-                        activeOpMode.with(
+                        if (activeOpMode.with(
                                 o -> {
                                     // Don't allow changing the config unless stopped. Who knows
                                     // what undefined behavior that would cause
@@ -1145,7 +1150,7 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
                                             && !opModeManager
                                                     .getActiveOpModeName()
                                                     .equals(OpModeManager.DEFAULT_OP_MODE_NAME)) {
-                                        return;
+                                        return false;
                                     }
 
                                     hardwareConfigList.with(
@@ -1154,8 +1159,10 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
                                                         false, l.get(hardwareConfigName));
                                             });
 
-                                    attemptRestart();
-                                });
+                                    return true;
+                                })) {
+                            attemptRestart();
+                        }
                         break;
                     }
                 case WRITE_HARDWARE_CONFIG:
@@ -1164,7 +1171,7 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
                                 ((WriteHardwareConfig) msg).getHardwareConfigName();
                         String hardwareConfigContents =
                                 ((WriteHardwareConfig) msg).getHardwareConfigContents();
-                        activeOpMode.with(
+                        if (activeOpMode.with(
                                 o -> {
                                     // Don't allow changing the config unless stopped. Who knows
                                     // what undefined behavior that would cause
@@ -1172,7 +1179,7 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
                                             && !opModeManager
                                                     .getActiveOpModeName()
                                                     .equals(OpModeManager.DEFAULT_OP_MODE_NAME)) {
-                                        return;
+                                        return false;
                                     }
 
                                     // Write hardware config
@@ -1200,15 +1207,17 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
                                                         false, l.get(hardwareConfigName));
                                             });
 
-                                    attemptRestart();
-                                });
+                                    return true;
+                                })) {
+                            attemptRestart();
+                        }
                         break;
                     }
                 case DELETE_HARDWARE_CONFIG:
                     {
                         String hardwareConfigName =
                                 ((DeleteHardwareConfig) msg).getHardwareConfigName();
-                        activeOpMode.with(
+                        if (activeOpMode.with(
                                 o -> {
                                     // Don't allow deleting the config unless stopped. Who knows
                                     // what undefined behavior that would cause
@@ -1216,7 +1225,7 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
                                             && !opModeManager
                                                     .getActiveOpModeName()
                                                     .equals(OpModeManager.DEFAULT_OP_MODE_NAME)) {
-                                        return;
+                                        return false;
                                     }
 
                                     deleteRobotConfigFile(hardwareConfigName);
@@ -1233,8 +1242,10 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
                                                 }
                                             });
 
-                                    attemptRestart();
-                                });
+                                    return true;
+                                })) {
+                            attemptRestart();
+                        }
                         break;
                     }
                 default:
