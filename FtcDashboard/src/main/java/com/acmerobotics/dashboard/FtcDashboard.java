@@ -66,15 +66,12 @@ import java.net.HttpURLConnection;
 import java.net.InetAddress;
 import java.net.URL;
 import java.nio.charset.Charset;
-import java.text.ParseException;
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Calendar;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
@@ -420,10 +417,8 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
         private static final String OPMODE_MANAGER_TAG = "OpModeManager";
         private static final String OPEN_CV_CAMERA_TAG = "OpenCvCamera";
 
-        private final SimpleDateFormat timestampFormat =
-                new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US);
-        private final String timestampYear =
-                String.valueOf(Calendar.getInstance().get(Calendar.YEAR));
+        private final LogcatTimestamp logcatTimestamp =
+                new LogcatTimestamp(Calendar.getInstance().get(Calendar.YEAR));
 
         private volatile boolean running = true;
 
@@ -433,6 +428,7 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
             BufferedReader reader = null;
 
             try {
+                // Start logcat process filtering for OpModeManager tag and OpenCvCamera errors
                 ProcessBuilder pb =
                         new ProcessBuilder(
                                 "logcat",
@@ -521,22 +517,18 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
                 String tag = tagAndMessage.substring(0, colonIndex).trim();
                 String message = tagAndMessage.substring(colonIndex + 1).trim();
 
+                // Only process OpModeManager and OpenCvCamera messages
                 if (!OPMODE_MANAGER_TAG.equals(tag) && !OPEN_CV_CAMERA_TAG.equals(tag)) {
                     return null;
                 }
 
                 return new ReceiveLogcatErrors.LogcatError(
-                        parseLogcatTimestamp(parts[0], parts[1]), level, tag, message);
+                        logcatTimestamp.parse(parts[0], parts[1], System.currentTimeMillis()),
+                        level,
+                        tag,
+                        message);
             } catch (Exception e) {
                 return null;
-            }
-        }
-
-        private long parseLogcatTimestamp(String date, String time) {
-            try {
-                return timestampFormat.parse(timestampYear + "-" + date + " " + time).getTime();
-            } catch (ParseException e) {
-                return System.currentTimeMillis();
             }
         }
 
