@@ -1261,7 +1261,11 @@ public class FtcDashboard implements OpModeManagerImpl.Notifications {
                         addConfigClasses(configRoot);
                     }
                 });
-        core.captureConfigBaseline();
+        try {
+            core.captureConfigBaseline();
+        } catch (RuntimeException e) {
+            RobotLog.ee(TAG, e, "Failed to record the config baseline");
+        }
 
         try {
             server.start();

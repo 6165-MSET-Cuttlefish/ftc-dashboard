@@ -290,6 +290,8 @@ public class DashboardCore {
                         v.putVariable(category, catVar);
                     }
 
+                    // Update baseline with current configuration state if this is the first time
+                    // we're adding this variable
                     CustomVariable added = new CustomVariable();
                     added.putVariable(name, catVar.getVariable(name));
                     configBaseline.with(
