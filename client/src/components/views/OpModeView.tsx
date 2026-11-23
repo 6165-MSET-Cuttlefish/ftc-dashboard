@@ -20,6 +20,7 @@ import ToolTip from '@/components/ToolTip';
 
 type OpModeViewState = {
   selectedOpMode: string;
+  wantedOpMode: string;
   shouldShowGamepadUnsupportedTooltip: boolean;
 };
 
@@ -62,6 +63,7 @@ class OpModeView extends Component<OpModeViewProps, OpModeViewState> {
 
     this.state = {
       selectedOpMode: '',
+      wantedOpMode: '',
       shouldShowGamepadUnsupportedTooltip: false,
     };
     this.gamepadUnsupportedTooltipRef = createRef();
@@ -96,22 +98,26 @@ class OpModeView extends Component<OpModeViewProps, OpModeViewState> {
     if (props.activeOpMode !== STOP_OP_MODE_TAG) {
       return {
         selectedOpMode: props.activeOpMode,
+        wantedOpMode: props.activeOpMode || state.wantedOpMode,
       };
     } else if (
-      state.selectedOpMode === '' ||
-      !props.opModeInfoList.some((info) => info.name === state.selectedOpMode)
+      props.opModeInfoList.some((info) => info.name === state.wantedOpMode)
     ) {
       return {
-        selectedOpMode: props.opModeInfoList[0]?.name || '',
+        selectedOpMode: state.wantedOpMode,
       };
     } else {
-      return {};
+      return {
+        selectedOpMode: props.opModeInfoList[0]?.name || '',
+        wantedOpMode: state.wantedOpMode || props.opModeInfoList[0]?.name || '',
+      };
     }
   }
 
   onChange(evt: ChangeEvent<HTMLSelectElement>) {
     this.setState({
       selectedOpMode: evt.target.value,
+      wantedOpMode: evt.target.value,
     });
   }
 
