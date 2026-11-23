@@ -44,6 +44,7 @@ export const useGamepadState = (hardwareConnected: boolean) => {
   const gamepad1StateRef = useRef(gamepad1State);
   const gamepad2StateRef = useRef(gamepad2State);
 
+  // Send state every 100ms to keep the RC watchdog alive
   useEffect(() => {
     if (hardwareConnected) return;
 

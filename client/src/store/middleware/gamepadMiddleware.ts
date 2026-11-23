@@ -289,6 +289,7 @@ const gamepadMiddleware: Middleware<Record<string, unknown>, RootState> = (
       }
     }
 
+    // actually dispatch motion events
     sendBoundGamepads(gamepads);
 
     requestAnimationFrame(updateGamepads);
